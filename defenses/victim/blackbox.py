@@ -15,10 +15,6 @@ from defenses.utils.type_checks import TypeCheck
 import defenses.models.zoo as zoo
 from defenses import datasets
 
-__author__ = "Tribhuvanesh Orekondy"
-__maintainer__ = "Tribhuvanesh Orekondy"
-__email__ = "orekondy@mpi-inf.mpg.de"
-__status__ = "Development"
 
 
 class Blackbox(object):
@@ -48,6 +44,16 @@ class Blackbox(object):
 
         self.out_path = out_path
         self.log_prefix = log_prefix
+        # Track some data for debugging
+        self.queries = []  # List of (x_i, y_i, y_i_prime, distance)
+        if self.out_path is not None:
+            self.log_path = osp.join(self.out_path, 'distance{}.log.tsv'.format(self.log_prefix))
+            if not osp.exists(self.log_path):
+                with open(self.log_path, 'w') as wf:
+                    columns = ['call_count', 'l1_mean', 'l1_std', 'l2_mean', 'l2_std', 'kl_mean', 'kl_std']
+                    wf.write('\t'.join(columns) + '\n')
+        else:
+            self.log_path = None
 
     @classmethod
     def from_modeldir(cls, model_dir, device=None, output_type='probs', **kwargs):
@@ -155,17 +161,11 @@ class Blackbox(object):
         # assert len(ytilde.shape) == 1, 'Does not support batching'
         return torch.sum(torch.abs(ytilde.clamp(min=0., max=1.).sum(dim=1) - 1.) <= tolerance).item()==len(ytilde)
 
-    def __call__(self, query_input):
+    def __call__(self, query_input, stat = True, return_origin = False):
         TypeCheck.multiple_image_blackbox_input_tensor(query_input)
 
-        if self.call_count == 0:
-            # Track some data for debugging
-            self.queries = []  # List of (x_i, y_i, y_i_prime, distance)
-            self.log_path = osp.join(self.out_path, 'distance{}.log.tsv'.format(self.log_prefix))
-            if not osp.exists(self.log_path):
-                with open(self.log_path, 'w') as wf:
-                    columns = ['call_count', 'l1_mean', 'l1_std', 'l2_mean', 'l2_std', 'kl_mean', 'kl_std']
-                    wf.write('\t'.join(columns) + '\n')
+
+            
 
         with torch.no_grad():
             query_input = query_input.to(self.device)
@@ -176,10 +176,11 @@ class Blackbox(object):
 
         y_prime = self.truncate_output(y_v, topk=self.topk, rounding=self.rounding)
 
-        for i in range(query_input.shape[0]):
-            self.queries.append((y_v[i].cpu().detach().numpy(), y_prime[i].cpu().detach().numpy()))
+        if stat:
+            
+            self.queries.append((y_v.cpu().detach().numpy(), y_prime.cpu().detach().numpy()))
 
-            if (self.call_count + i) % 1000 == 0:
+            if self.call_count % 1000 == 0:
                 # Dump queries
                 query_out_path = osp.join(self.out_path, 'queries.pickle')
                 with open(query_out_path, 'wb') as wf:
@@ -192,10 +193,13 @@ class Blackbox(object):
                     test_cols = [self.call_count, l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std]
                     af.write('\t'.join([str(c) for c in test_cols]) + '\n')
 
-        return y_prime
+        if return_origin:
+            return y_prime,y_v
+        else:
+            return y_prime
 
     def eval(self):
-        pass
+        self.model.eval()
 
     def get_yprime(self,y):
         return self.truncate_output(y, topk=self.topk, rounding=self.rounding)

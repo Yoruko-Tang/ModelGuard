@@ -22,10 +22,6 @@ from defenses import datasets
 import defenses.utils.model as model_utils
 import defenses.models.zoo as zoo
 
-__author__ = "Tribhuvanesh Orekondy"
-__maintainer__ = "Tribhuvanesh Orekondy"
-__email__ = "orekondy@mpi-inf.mpg.de"
-__status__ = "Development"
 
 
 def main():

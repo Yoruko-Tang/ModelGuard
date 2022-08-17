@@ -19,10 +19,7 @@ import torchvision.models as torch_models
 
 import defenses.utils.utils as knockoff_utils
 
-__author__ = "Tribhuvanesh Orekondy"
-__maintainer__ = "Tribhuvanesh Orekondy"
-__email__ = "orekondy@mpi-inf.mpg.de"
-__status__ = "Development"
+
 
 
 def get_net(model_name, n_output_classes=1000, **kwargs):

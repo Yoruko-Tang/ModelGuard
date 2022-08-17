@@ -17,13 +17,8 @@ import defenses.models.zoo as zoo
 from defenses import datasets
 
 from defenses.victim import Blackbox
-from .bb_mad import MAD
+from .mad import MAD
 
-
-__author__ = "Tribhuvanesh Orekondy"
-__maintainer__ = "Tribhuvanesh Orekondy"
-__email__ = "orekondy@mpi-inf.mpg.de"
-__status__ = "Development"
 
 
 class MAD_WB(Blackbox):

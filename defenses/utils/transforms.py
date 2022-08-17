@@ -6,10 +6,7 @@ from torchvision.transforms import transforms
 
 import defenses.config as cfg
 
-__author__ = "Tribhuvanesh Orekondy"
-__maintainer__ = "Tribhuvanesh Orekondy"
-__email__ = "orekondy@mpi-inf.mpg.de"
-__status__ = "Development"
+
 
 
 class DefaultTransforms:

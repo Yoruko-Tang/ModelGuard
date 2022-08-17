@@ -30,10 +30,6 @@ import defenses.config as cfg
 from defenses.victim import *
 from wb_recover import Table_Recover
 
-__author__ = "Tribhuvanesh Orekondy"
-__maintainer__ = "Tribhuvanesh Orekondy"
-__email__ = "orekondy@mpi-inf.mpg.de"
-__status__ = "Development"
 
 
 
@@ -148,6 +144,8 @@ def main():
                         choices=knockoff_utils.BBOX_CHOICES, default='none')
     parser.add_argument('defense_args', metavar='STR', type=str, help='Blackbox arguments in format "k1:v1,k2:v2,..."')
     parser.add_argument('--defense_aware',type=int,help="Whether using defense-aware attack",default = 0)
+    parser.add_argument('--quantize',type=int,help="Whether using quantized defense",default=0)
+    parser.add_argument('--quantize_args',type=str,help='Quantization arguments in format "k1:v1,k2:v2,..."')
     parser.add_argument('--out_dir', metavar='PATH', type=str,
                         help='Destination directory to store transfer set', required=True)
     parser.add_argument('--budget', metavar='N', type=int, help='# images',
@@ -214,8 +212,14 @@ def main():
     defense_kwargs['log_prefix'] = 'transfer'
     print('=> Initializing BBox with defense {} and arguments: {}'.format(defense_type, defense_kwargs))
     blackbox = BB.from_modeldir(blackbox_dir, device, **defense_kwargs)
+    if params['quantize']:
+        quantize_kwargs = knockoff_utils.parse_defense_kwargs(params['quantize_args'])
+        if quantize_kwargs['epsilon'] > 0.0:
+            print('=> Initializing Quantizer with arguments: {}'.format(quantize_kwargs))
+            blackbox = incremental_kmeans(blackbox,**quantize_kwargs)
+    
     if params['defense_aware']:
-        recover = Table_Recover(blackbox,batch_size=params['batch_size'])
+        recover = Table_Recover(blackbox,batch_size=params['batch_size'],recover_mean=True if params['quantize'] else False)
     else:
         recover = None
 

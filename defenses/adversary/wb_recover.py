@@ -47,6 +47,8 @@ class Table_Recover():
         self.logger = csv.writer(open(self.log_path,'w'),delimiter='\t')
         self.logger.writerow(['call count','recover distance mean', 'recover distance std'])
 
+        self.call_count = 0
+
     def __call__(self, yprime):
         assert yprime.dim()==2, "yprime must be a batch with dim=2"
         yprime = yprime.to(self.device)
@@ -63,15 +65,16 @@ class Table_Recover():
                 y.append(true_label_filtered[min_idx,:].unsqueeze(0))
                 rec_dis.append(distances[min_idx])
             else:
-                tolerance = torch.max([self.tolerance,torch.min(distances)])
-                y.append(torch.mean(true_label_filtered[distances<=tolerance:],dim=0,keepdim=True))
+                tolerance = max([self.tolerance,torch.min(distances).cpu().item()])
+                y.append(torch.mean(true_label_filtered[distances<=tolerance,:],dim=0,keepdim=True))
                 rec_dis.append(torch.mean(distances[distances<=tolerance]))
                 
-        
+        self.call_count += len(yprime)
         mean_rec_dis = torch.mean(torch.tensor(rec_dis)).cpu().item()
         std_rec_dis = torch.std(torch.tensor(rec_dis)).cpu().item()
-        self.logger.writerow([self.blackbox.call_count,mean_rec_dis,std_rec_dis])
+        self.logger.writerow([self.call_count,mean_rec_dis,std_rec_dis])
         y = torch.cat(y,dim=0)
+        
         return y
             
 

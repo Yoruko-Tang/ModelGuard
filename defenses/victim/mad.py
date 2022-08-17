@@ -25,20 +25,15 @@ import warnings
 from pulp import *
 
 
-__author__ = "Tribhuvanesh Orekondy"
-__maintainer__ = "Tribhuvanesh Orekondy"
-__email__ = "orekondy@mpi-inf.mpg.de"
-__status__ = "Development"
-
 
 class MAD(Blackbox):
     def __init__(self, epsilon=None, optim='linesearch', model_adv_proxy=None, max_grad_layer=None, ydist='l1',
-                 oracle='extreme', disable_jacobian=False, objmax=False, batch_constraint = False, out_path=None, log_prefix='', *args, **kwargs):
+                 oracle='extreme', disable_jacobian=False, objmax=False, batch_constraint = False,  *args, **kwargs):
         super().__init__(*args, **kwargs)
         print('=> MAD ({})'.format([self.dataset_name, epsilon, optim, ydist, oracle]))
 
         self.epsilon = epsilon
-        self.out_path = out_path
+
         self.disable_jacobian = bool(disable_jacobian)
         if self.disable_jacobian:
             print('')
@@ -67,13 +62,13 @@ class MAD(Blackbox):
             self.model_adv_proxy = self.model
 
         # To compute stats
-        self.dataset = datasets.__dict__[self.dataset_name]
-        self.modelfamily = datasets.dataset_to_modelfamily[self.dataset_name]
-        self.train_transform = datasets.modelfamily_to_transforms[self.modelfamily]['train']
-        self.test_transform = datasets.modelfamily_to_transforms[self.modelfamily]['test']
-        self.testset = self.dataset(train=False, transform=self.test_transform)
+        # self.dataset = datasets.__dict__[self.dataset_name]
+        # self.modelfamily = datasets.dataset_to_modelfamily[self.dataset_name]
+        # self.train_transform = datasets.modelfamily_to_transforms[self.modelfamily]['train']
+        # self.test_transform = datasets.modelfamily_to_transforms[self.modelfamily]['test']
+        # self.testset = self.dataset(train=False, transform=self.test_transform)
 
-        self.K = len(self.testset.classes)
+        self.K = self.num_classes
         self.D = None
 
         self.ydist = ydist
@@ -90,14 +85,6 @@ class MAD(Blackbox):
         # Gradients from which layer to use?
         # assert max_grad_layer in [None, 'all']
         self.max_grad_layer = max_grad_layer
-
-        # Track some data for debugging
-        self.queries = []  # List of (x_i, y_i, y_i_prime, distance)
-        self.log_path = osp.join(out_path, 'distance{}.log.tsv'.format(log_prefix))
-        if not osp.exists(self.log_path):
-            with open(self.log_path, 'w') as wf:
-                columns = ['call_count', 'l1_mean', 'l1_std', 'l2_mean', 'l2_std', 'kl_mean', 'kl_std']
-                wf.write('\t'.join(columns) + '\n')
 
         self.jacobian_times = []
 
@@ -847,14 +834,15 @@ class MAD(Blackbox):
         return delta, objval, objval_surrogate
 
 
-    def __call__(self, x):
+    def __call__(self, x, stat=True, return_origin=False):
         TypeCheck.multiple_image_blackbox_input_tensor(x)  # of shape B x C x H x W
 
         with torch.no_grad():
             x = x.to(self.device)
             z_v = self.model(x)  # Victim's predicted logits
             y_v = F.softmax(z_v, dim=1).detach()
-            self.call_count += x.shape[0]
+            if stat:
+                self.call_count += x.shape[0]
 
 
         # with torch.enable_grad():
@@ -883,28 +871,31 @@ class MAD(Blackbox):
                     print('[WARNING] Distance contraint failed (i = {}, dist = {:.4f} > {:.4f})'.format(self.call_count+i-len(y_v),
                                                                                                         _dist,
                                                                                                         self.epsilon))
+        if stat:
+            self.queries.append((y_v.cpu().detach().numpy(), y_prime.cpu().detach().numpy(),
+                                    objval.cpu().detach().numpy(), sobjval.cpu().detach().numpy()))
 
-        self.queries.append((y_v.cpu().detach().numpy(), y_prime.cpu().detach().numpy(),
-                                objval.cpu().detach().numpy(), sobjval.cpu().detach().numpy()))
+            # y_prime.append(y_prime_i)
 
-        # y_prime.append(y_prime_i)
+            if self.call_count % 1000 == 0:
+                # Dump queries
+                query_out_path = osp.join(self.out_path, 'queries.pickle')
+                with open(query_out_path, 'wb') as wf:
+                    pickle.dump(self.queries, wf)
 
-        if self.call_count % 1000 == 0:
-            # Dump queries
-            query_out_path = osp.join(self.out_path, 'queries.pickle')
-            with open(query_out_path, 'wb') as wf:
-                pickle.dump(self.queries, wf)
+                l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std = self.calc_query_distances(self.queries)
 
-            l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std = self.calc_query_distances(self.queries)
-
-            # Logs
-            with open(self.log_path, 'a') as af:
-                test_cols = [self.call_count, l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std]
-                af.write('\t'.join([str(c) for c in test_cols]) + '\n')
+                # Logs
+                with open(self.log_path, 'a') as af:
+                    test_cols = [self.call_count, l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std]
+                    af.write('\t'.join([str(c) for c in test_cols]) + '\n')
 
         # y_prime = torch.stack(y_prime)
 
-        return y_prime
+        if return_origin:
+            return y_prime,y_v
+        else:
+            return y_prime
 
     def get_yprime(self,y):
         n,K = y.shape

@@ -16,14 +16,10 @@ import defenses.models.zoo as zoo
 from defenses import datasets
 
 from defenses.victim.blackbox import Blackbox
-from .bb_mad import MAD  # euclidean_proj_l1ball, euclidean_proj_simplex, is_in_dist_ball, is_in_simplex
-from .bb_randnoise import RandomNoise
+from .mad import MAD  # euclidean_proj_l1ball, euclidean_proj_simplex, is_in_dist_ball, is_in_simplex
+from .randnoise import RandomNoise
 
 
-__author__ = "Tribhuvanesh Orekondy"
-__maintainer__ = "Tribhuvanesh Orekondy"
-__email__ = "orekondy@mpi-inf.mpg.de"
-__status__ = "Development"
 
 
 class RandomNoise_WB(Blackbox):

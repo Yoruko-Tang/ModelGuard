@@ -19,34 +19,26 @@ from pulp import *
 
 
 class MLD(Blackbox):
-    def __init__(self, epsilon=None, ydist='l1',batch_constraint = False, out_path=None, log_prefix='', *args, **kwargs):
+    def __init__(self, epsilon=None, ydist='l1',batch_constraint = False, *args, **kwargs):
         super().__init__(*args, **kwargs)
         print('=> MLD ({})'.format([self.dataset_name, epsilon, ydist]))
 
         self.epsilon = epsilon
         self.batch_constraint = bool(batch_constraint)
-        self.out_path = out_path
 
         # To compute stats
-        self.dataset = datasets.__dict__[self.dataset_name]
-        self.modelfamily = datasets.dataset_to_modelfamily[self.dataset_name]
-        self.train_transform = datasets.modelfamily_to_transforms[self.modelfamily]['train']
-        self.test_transform = datasets.modelfamily_to_transforms[self.modelfamily]['test']
-        self.testset = self.dataset(train=False, transform=self.test_transform)
+        # self.dataset = datasets.__dict__[self.dataset_name]
+        # self.modelfamily = datasets.dataset_to_modelfamily[self.dataset_name]
+        # self.train_transform = datasets.modelfamily_to_transforms[self.modelfamily]['train']
+        # self.test_transform = datasets.modelfamily_to_transforms[self.modelfamily]['test']
+        # self.testset = self.dataset(train=False, transform=self.test_transform)
 
-        self.K = len(self.testset.classes)
-        self.D = None
+        self.K = self.num_classes
+
 
         self.ydist = ydist
         assert ydist in ['l1', 'l2', 'kl']
 
-        # Track some data for debugging
-        self.queries = []  # List of (x_i, y_i, y_i_prime, distance)
-        self.log_path = osp.join(out_path, 'distance{}.log.tsv'.format(log_prefix))
-        if not osp.exists(self.log_path):
-            with open(self.log_path, 'w') as wf:
-                columns = ['call_count', 'l1_mean', 'l1_std', 'l2_mean', 'l2_std', 'kl_mean', 'kl_std']
-                wf.write('\t'.join(columns) + '\n')
 
 
     @staticmethod
@@ -69,7 +61,7 @@ class MLD(Blackbox):
             # c = np.concatenate([c,np.zeros(n*K)],axis=None) # dimension of c should be 2nk
         y = y.detach().cpu().numpy()
 
-        prob = LpProblem("MLD-Batch",LpMinimize)
+        prob = LpProblem("MLD",LpMinimize)
         ys = []
         zs = []
         # build variable 
@@ -121,14 +113,15 @@ class MLD(Blackbox):
         
 
 
-    def __call__(self, x):
+    def __call__(self, x ,stat=True,return_origin=False):
         TypeCheck.multiple_image_blackbox_input_tensor(x)  # of shape B x C x H x W
 
         with torch.no_grad():
             x = x.to(self.device)
             z_v = self.model(x)  # Victim's predicted logits
             y_v = F.softmax(z_v, dim=1).detach()
-            self.call_count += x.shape[0]
+            if stat:
+                self.call_count += x.shape[0]
 
         y_prime,objval = self.oracle_batch_pulp(y_v,self.epsilon,self.batch_constraint,tolerance=None)
 
@@ -151,26 +144,28 @@ class MLD(Blackbox):
                     print('[WARNING] Distance contraint failed (i = {}, dist = {:.4f} > {:.4f})'.format(self.call_count+i-len(y_v),
                                                                                                         _dist,
                                                                                                         self.epsilon))
-
-        self.queries.append((y_v.cpu().detach().numpy(), y_prime.cpu().detach().numpy(),
-                                objval.cpu().detach().numpy()))
-
-
-        if self.call_count % 1000 == 0:
-            # Dump queries
-            query_out_path = osp.join(self.out_path, 'queries.pickle')
-            with open(query_out_path, 'wb') as wf:
-                pickle.dump(self.queries, wf)
-
-            l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std = self.calc_query_distances(self.queries)
-
-            # Logs
-            with open(self.log_path, 'a') as af:
-                test_cols = [self.call_count, l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std]
-                af.write('\t'.join([str(c) for c in test_cols]) + '\n')
+        if stat:
+            self.queries.append((y_v.cpu().detach().numpy(), y_prime.cpu().detach().numpy(),
+                                    objval.cpu().detach().numpy()))
 
 
-        return y_prime
+            if self.call_count % 1000 == 0:
+                # Dump queries
+                query_out_path = osp.join(self.out_path, 'queries.pickle')
+                with open(query_out_path, 'wb') as wf:
+                    pickle.dump(self.queries, wf)
+
+                l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std = self.calc_query_distances(self.queries)
+
+                # Logs
+                with open(self.log_path, 'a') as af:
+                    test_cols = [self.call_count, l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std]
+                    af.write('\t'.join([str(c) for c in test_cols]) + '\n')
+
+        if return_origin:
+            return y_prime,y_v
+        else:
+            return y_prime
 
     def get_yprime(self,y):
         y_prime,_ = self.oracle_batch_pulp(y,self.epsilon,self.batch_constraint,tolerance=None)

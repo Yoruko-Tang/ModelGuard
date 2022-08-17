@@ -12,13 +12,10 @@ from defenses.utils.type_checks import TypeCheck
 
 
 from defenses.victim.blackbox import Blackbox
-from .bb_mad import MAD   # euclidean_proj_l1ball, euclidean_proj_simplex, is_in_dist_ball, is_in_simplex
-from .bb_reversesigmoid import ReverseSigmoid
+from .mad import MAD   # euclidean_proj_l1ball, euclidean_proj_simplex, is_in_dist_ball, is_in_simplex
+from .reversesigmoid import ReverseSigmoid
 
-__author__ = "Tribhuvanesh Orekondy"
-__maintainer__ = "Tribhuvanesh Orekondy"
-__email__ = "orekondy@mpi-inf.mpg.de"
-__status__ = "Development"
+
 
 
 class RandomNoise(Blackbox):
@@ -35,13 +32,7 @@ class RandomNoise(Blackbox):
         assert strat in ['uniform', 'gaussian']
         self.strat = strat
 
-        # Track some data for debugging
-        self.queries = []  # List of (x_i, y_i, y_i_prime, distance)
-        self.log_path = osp.join(out_path, 'distance{}.log.tsv'.format(log_prefix))
-        if not osp.exists(self.log_path):
-            with open(self.log_path, 'w') as wf:
-                columns = ['call_count', 'l1_mean', 'l1_std', 'l2_mean', 'l2_std', 'kl_mean', 'kl_std']
-                wf.write('\t'.join(columns) + '\n')
+
 
     @staticmethod
     def make_one_hot(labels, K):
@@ -90,14 +81,15 @@ class RandomNoise(Blackbox):
 
         return delta
 
-    def __call__(self, x):
+    def __call__(self, x, stat = True):
         TypeCheck.multiple_image_blackbox_input_tensor(x)   # of shape B x C x H x W
 
         with torch.no_grad():
             x = x.to(self.device)
             z_v = self.model(x)   # Victim's predicted logits
             y_v = F.softmax(z_v, dim=1)
-            self.call_count += x.shape[0]
+            if stat:
+                self.call_count += x.shape[0]
 
         if self.epsilonz > 0.:
             delta = self.compute_noise(y_v, self.strat, self.epsilonz, self.ydist).to(self.device)
@@ -105,10 +97,10 @@ class RandomNoise(Blackbox):
             delta = torch.zeros_like(y_v)
         y_prime = y_v + delta
 
-        for i in range(x.shape[0]):
-            self.queries.append((y_v[i].cpu().detach().numpy(), y_prime[i].cpu().detach().numpy()))
+        if stat:
+            self.queries.append((y_v.cpu().detach().numpy(), y_prime.cpu().detach().numpy()))
 
-            if (self.call_count + i) % 1000 == 0:
+            if self.call_count % 1000 == 0:
                 # Dump queries
                 query_out_path = osp.join(self.out_path, 'queries.pickle')
                 with open(query_out_path, 'wb') as wf:

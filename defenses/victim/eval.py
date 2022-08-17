@@ -25,10 +25,6 @@ import defenses.config as cfg
 from defenses.victim import *
 
 
-__author__ = "Tribhuvanesh Orekondy"
-__maintainer__ = "Tribhuvanesh Orekondy"
-__email__ = "orekondy@mpi-inf.mpg.de"
-__status__ = "Development"
 
 
 def main():

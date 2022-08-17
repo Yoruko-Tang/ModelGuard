@@ -32,10 +32,7 @@ import defenses.models.zoo as zoo
 
 from defenses.victim import *
 
-__author__ = "Tribhuvanesh Orekondy"
-__maintainer__ = "Tribhuvanesh Orekondy"
-__email__ = "orekondy@mpi-inf.mpg.de"
-__status__ = "Development"
+
 
 
 def make_one_hot(labels, K):

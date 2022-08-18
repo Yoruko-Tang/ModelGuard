@@ -219,7 +219,7 @@ def main():
             blackbox = incremental_kmeans(blackbox,**quantize_kwargs)
     
     if params['defense_aware']:
-        recover = Table_Recover(blackbox,batch_size=params['batch_size'],recover_mean=True if params['quantize'] else False)
+        recover = Table_Recover(blackbox,batch_size=params['batch_size'],recover_mean=True)
     else:
         recover = None
 

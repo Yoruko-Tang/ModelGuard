@@ -29,11 +29,11 @@ __status__ = "Development"
 
 class Caltech256(ImageFolder):
 
-    def __init__(self, train=True, transform=None, target_transform=None):
+    def __init__(self, train=True, transform=None, target_transform=None,**kwargs):
         root = osp.join(cfg.DATASET_ROOT, '256_ObjectCategories')
         if not osp.exists(root):
             raise ValueError('Dataset not found at {}. Please download it from {}.'.format(
-                root, 'http://www.vision.caltech.edu/Image_Datasets/Caltech256/'
+                root, 'https://data.caltech.edu/records/nyy15-4j048'
             ))
 
         # Initialize ImageFolder

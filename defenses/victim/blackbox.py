@@ -75,20 +75,20 @@ class Blackbox(object):
             raise ValueError('Unable to determine model family')
         modelfamily = datasets.dataset_to_modelfamily[dataset_name]
 
-        # Instantiate the model
-        model = zoo.get_net(model_arch, modelfamily, num_classes=num_classes)
+        # Instantiate the model and load weights
+        model = zoo.get_net(model_arch, modelfamily, pretrained=model_dir, num_classes=num_classes)
         model = model.to(device)
 
-        # Load weights
-        checkpoint_path = osp.join(model_dir, 'model_best.pth.tar')
-        if not osp.exists(checkpoint_path):
-            checkpoint_path = osp.join(model_dir, 'checkpoint.pth.tar')
-        print("=> loading checkpoint '{}'".format(checkpoint_path))
-        checkpoint = torch.load(checkpoint_path)
-        epoch = checkpoint['epoch']
-        best_test_acc = checkpoint['best_acc']
-        model.load_state_dict(checkpoint['state_dict'])
-        print("=> loaded checkpoint (epoch {}, acc={:.2f})".format(epoch, best_test_acc))
+        # # Load weights
+        # checkpoint_path = osp.join(model_dir, 'model_best.pth.tar')
+        # if not osp.exists(checkpoint_path):
+        #     checkpoint_path = osp.join(model_dir, 'checkpoint.pth.tar')
+        # print("=> loading checkpoint '{}'".format(checkpoint_path))
+        # checkpoint = torch.load(checkpoint_path)
+        # epoch = checkpoint['epoch']
+        # best_test_acc = checkpoint['best_acc']
+        # model.load_state_dict(checkpoint['state_dict'])
+        # print("=> loaded checkpoint (epoch {}, acc={:.2f})".format(epoch, best_test_acc))
 
         # print(cls, model, device, output_type, kwargs)
         blackbox = cls(model=model, device=device, output_type=output_type, dataset_name=dataset_name,
@@ -127,7 +127,7 @@ class Blackbox(object):
             y_v, y_prime = torch.tensor(y_v), torch.tensor(y_prime)
             l1s.append((y_v - y_prime).norm(p=1,dim=1).mean().item())
             l2s.append((y_v - y_prime).norm(p=2,dim=1).mean().item())
-            kls.append(F.kl_div((y_v+1e-6).log(), y_prime, reduction='mean').item())
+            kls.append(F.kl_div((y_v+1e-6).log(), y_prime, reduction='batchmean').item())
         l1_mean, l1_std = np.mean(l1s), np.std(l1s)
         l2_mean, l2_std = np.mean(l2s), np.std(l2s)
         kl_mean, kl_std = np.mean(kls), np.std(kls)
@@ -145,7 +145,7 @@ class Blackbox(object):
         elif ydist == 'l2':
             return (ytilde - y).norm(p=2)
         elif ydist == 'kl':
-            return F.kl_div((y+1e-6).log(), ytilde, reduction='mean')
+            return F.kl_div((y+1e-6).log(), ytilde, reduction='batchmean')
         else:
             raise ValueError('Unrecognized ydist contraint')
 

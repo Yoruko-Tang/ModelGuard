@@ -108,7 +108,7 @@ def main():
                         help='Comma separated values of budgets. Knockoffs will be trained for each budget.')
     # Optional arguments
     parser.add_argument('-d', '--device_id', metavar='D', type=int, help='Device id. -1 for CPU.', default=0)
-    parser.add_argument('-b', '--batch-size', type=int, default=64, metavar='N',
+    parser.add_argument('-b', '--batch_size', type=int, default=64, metavar='N',
                         help='input batch size for training (default: 64)')
     parser.add_argument('-e', '--epochs', type=int, default=100, metavar='N',
                         help='number of epochs to train (default: 100)')
@@ -116,22 +116,26 @@ def main():
                         help='learning rate (default: 0.01)')
     parser.add_argument('--momentum', type=float, default=0.5, metavar='M',
                         help='SGD momentum (default: 0.5)')
-    parser.add_argument('--log-interval', type=int, default=50, metavar='N',
+    parser.add_argument('--log_interval', type=int, default=50, metavar='N',
                         help='how many batches to wait before logging training status')
     parser.add_argument('--resume', default=None, type=str, metavar='PATH',
                         help='path to latest checkpoint (default: none)')
-    parser.add_argument('--lr-step', type=int, default=30, metavar='N',
+    parser.add_argument('--lr_step', type=int, default=30, metavar='N',
                         help='Step sizes for LR')
-    parser.add_argument('--lr-gamma', type=float, default=0.1, metavar='N',
+    parser.add_argument('--lr_gamma', type=float, default=0.1, metavar='N',
                         help='LR Decay Rate')
     parser.add_argument('--vic_dir',type=str,default=None,help="Directory contraining the victim model (used for calculate fidelity)")
     parser.add_argument('-w', '--num_workers', metavar='N', type=int, help='# Worker threads to load data', default=10)
     parser.add_argument('--pretrained', type=str, help='Use pretrained network', default=None)
     parser.add_argument('--fix_feat',action='store_true',help='Fix the feature extractor and only train last linear layer')
-    parser.add_argument('--weighted-loss', action='store_true', help='Use a weighted loss', default=False)
+    parser.add_argument('--weighted_loss', action='store_true', help='Use a weighted loss', default=False)
+    # semi-supervised augmentation
+    parser.add_argument('--semitrainweight',type=float,default=0.0,help="Semi-supervised learning weight")
+    parser.add_argument('--semidataset',type=str,default=None,help="dataset of semi-supervised learning")
     # Attacker's defense
     parser.add_argument('--argmaxed', action='store_true', help='Only consider argmax labels', default=False)
     parser.add_argument('--optimizer_choice', type=str, help='Optimizer', default='sgdm', choices=('sgd', 'sgdm', 'adam', 'adagrad'))
+    parser.add_argument('--queryset', metavar='TYPE', type=str, help='Adversary\'s dataset (P_A(X))', default=None)
     args = parser.parse_args()
     params = vars(args)
 
@@ -143,11 +147,17 @@ def main():
         device = torch.device('cpu')
     model_dir = params['model_dir']
 
+    if params['queryset'] is None:
+        queryset = model_dir.split('-')[2]
+    else:
+        queryset = params['queryset']
     # ----------- Set up transferset
     transferset_path = osp.join(model_dir, 'transferset.pickle')
     with open(transferset_path, 'rb') as rf:
         transferset_samples = pickle.load(rf)
     num_classes = transferset_samples[0][1].size(0)
+    transfer_modelfamily = datasets.dataset_to_modelfamily[queryset]
+    transfer_transform = datasets.modelfamily_to_transforms[transfer_modelfamily]['test']
     print('=> found transfer set with {} samples, {} classes'.format(len(transferset_samples), num_classes))
 
     # ----------- Clean up transfer (if necessary)
@@ -162,15 +172,29 @@ def main():
             new_transferset_samples.append((x_i, y_i_1hot))
         transferset_samples = new_transferset_samples
 
+    # ----------- Set up semisupervised set
+    semi_train_weight = params['semitrainweight']
+    semi_dataset_name = params['semidataset'] 
+    if semi_train_weight>0 and semi_dataset_name is not None:
+        valid_datasets = datasets.__dict__.keys()
+        if semi_dataset_name not in valid_datasets:
+            raise ValueError('Dataset not found. Valid arguments = {}'.format(valid_datasets))
+        modelfamily = datasets.dataset_to_modelfamily[semi_dataset_name]
+        transform = datasets.modelfamily_to_transforms[modelfamily]['test']
+        semi_dataset = datasets.__dict__[semi_dataset_name](train=True, transform=transform)
+    else:
+        semi_dataset = None
+
+    
     # ----------- Set up testset
     dataset_name = params['testdataset']
     valid_datasets = datasets.__dict__.keys()
-    modelfamily = datasets.dataset_to_modelfamily[dataset_name]
-    transform = datasets.modelfamily_to_transforms[modelfamily]['test']
     if dataset_name not in valid_datasets:
         raise ValueError('Dataset not found. Valid arguments = {}'.format(valid_datasets))
-    dataset = datasets.__dict__[dataset_name]
-    testset = dataset(train=False, transform=transform)
+    modelfamily = datasets.dataset_to_modelfamily[dataset_name]
+    transform = datasets.modelfamily_to_transforms[modelfamily]['test']
+    testset = datasets.__dict__[dataset_name](train=False, transform=transform)
+    #testset = dataset(train=False, transform=transform)
     if len(testset.classes) != num_classes:
         raise ValueError('# Transfer classes ({}) != # Testset classes ({})'.format(num_classes, len(testset.classes)))
 
@@ -178,7 +202,7 @@ def main():
     model_name = params['model_arch']
     pretrained = params['pretrained']
     # model = model_utils.get_net(model_name, n_output_classes=num_classes, pretrained=pretrained)
-    model = zoo.get_net(model_name, modelfamily, pretrained, num_classes=num_classes)
+    model = zoo.get_net(model_name, modelfamily, pretrained, num_classes=num_classes, rot_semi=(semi_train_weight>0))
     model = model.to(device)
 
     if params['vic_dir'] is not None:
@@ -197,24 +221,30 @@ def main():
         torch.manual_seed(cfg.DEFAULT_SEED)
         torch.cuda.manual_seed(cfg.DEFAULT_SEED)
 
-        transferset = samples_to_transferset(transferset_samples, budget=b, transform=transform)
+        transferset = samples_to_transferset(transferset_samples, budget=b, transform=transfer_transform)
         print()
         print('=> Training at budget = {}'.format(len(transferset)))
         if not params['fix_feat']:
             optimizer = get_optimizer(model.parameters(), params['optimizer_choice'], **params)
         else:
-            optimizer = get_optimizer(model.classifier.parameters(), params['optimizer_choice'], **params)
+            if hasattr(model,"classifier"):
+                optimizer = get_optimizer(model.classifier.parameters(), params['optimizer_choice'], **params)
+            else:
+                optimizer = get_optimizer(model.last_linear.parameters(), params['optimizer_choice'], **params)
         print(params)
 
         checkpoint_suffix = '.{}'.format(b)
         criterion_train = model_utils.soft_cross_entropy
-        save_path = model_dir + "/{}_featfix{}/".format(params['pretrained'],int(params['fix_feat']))
+        save_path = model_dir + "/{}_{}-{:.1f}_featfix{}/".format(params['pretrained'],params['semidataset'],
+                                                                  params['semitrainweight'],int(params['fix_feat']))
         model_utils.train_model(model, transferset, save_path, testset=testset, criterion_train=criterion_train,
-                                checkpoint_suffix=checkpoint_suffix, device=device, optimizer=optimizer,gt_model=blackbox_model, **params)
+                                semi_train_weight=semi_train_weight,semi_dataset=semi_dataset,
+                                checkpoint_suffix=checkpoint_suffix, device=device, optimizer=optimizer,
+                                gt_model=blackbox_model, **params)
 
     # Store arguments
     params['created_on'] = str(datetime.now())
-    params_out_path = osp.join(model_dir, 'params_train.json')
+    params_out_path = osp.join(save_path, 'params_train.json')
     with open(params_out_path, 'w') as jf:
         json.dump(params, jf, indent=True)
 

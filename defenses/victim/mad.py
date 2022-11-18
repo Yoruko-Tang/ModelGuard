@@ -49,12 +49,12 @@ class MAD(Blackbox):
         if model_adv_proxy is not None:
             if osp.isdir(model_adv_proxy):
                 model_adv_proxy_params = osp.join(model_adv_proxy, 'params.json')
-                model_adv_proxy = osp.join(model_adv_proxy, 'checkpoint.pth.tar')
+                # model_adv_proxy = osp.join(model_adv_proxy, 'checkpoint.pth.tar')
                 with open(model_adv_proxy_params, 'r') as rf:
                     proxy_params = json.load(rf)
                     model_adv_proxy_arch = proxy_params['model_arch']
                 print('Loading proxy ({}) parameters: {}'.format(model_adv_proxy_arch, model_adv_proxy))
-            assert osp.exists(model_adv_proxy), 'Does not exist: {}'.format(model_adv_proxy)
+            assert osp.exists(osp.join(model_adv_proxy, 'checkpoint.pth.tar')), 'Does not exist: {}'.format(osp.join(model_adv_proxy, 'checkpoint.pth.tar'))
             self.model_adv_proxy = zoo.get_net(model_adv_proxy_arch, self.modelfamily, pretrained=model_adv_proxy,
                                                num_classes=self.num_classes)
             self.model_adv_proxy = self.model_adv_proxy.to(self.device)
@@ -799,6 +799,8 @@ class MAD(Blackbox):
 
         if self.oracle not in ['lp_argmax','lp_extreme']:
             # y* via oracle
+            assert len(y)==1, "Does not support batching in original MAD!"
+            y = y.flatten()
             if self.oracle == 'random':
                 ystar, ystar_val = self.oracle_rand(G, y)
             elif self.oracle == 'extreme':

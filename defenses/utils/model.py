@@ -18,9 +18,9 @@ from torch.utils.data import DataLoader
 import torchvision.models as torch_models
 
 import defenses.utils.utils as knockoff_utils
+from defenses.utils.semi_losses import Rotation_Loss
 
-
-
+from tqdm import tqdm
 
 def get_net(model_name, n_output_classes=1000, **kwargs):
     print('=> loading model {} with arguments: {}'.format(model_name, kwargs))
@@ -58,9 +58,10 @@ def soft_cross_entropy(pred, soft_targets, weights=None):
         return torch.mean(torch.sum(- soft_targets * F.log_softmax(pred, dim=1), 1))
 
 
-def train_step(model, train_loader, criterion, optimizer, epoch, device, log_interval=10, writer=None):
+def train_step(model, train_loader, criterion, optimizer, epoch, device, semi_train_weight=0.0, log_interval=10, writer=None):
     model.train()
     train_loss = 0.
+    semi_train_loss = 0.
     correct = 0
     total = 0
     train_loss_batch = 0
@@ -72,13 +73,19 @@ def train_step(model, train_loader, criterion, optimizer, epoch, device, log_int
         optimizer.zero_grad()
         outputs = model(inputs)
         loss = criterion(outputs, targets)
-        loss.backward()
+        if semi_train_weight>0:
+            semi_loss = Rotation_Loss(model,inputs)
+        else:
+            semi_loss = torch.tensor(0.0)
+        total_loss = loss + semi_loss * semi_train_weight
+        total_loss.backward()
         optimizer.step()
 
         if writer is not None:
             pass
 
         train_loss += loss.item()
+        semi_train_loss += semi_loss.item()
         _, predicted = outputs.max(1)
         total += targets.size(0)
         if len(targets.size()) == 2:
@@ -92,11 +99,17 @@ def train_step(model, train_loader, criterion, optimizer, epoch, device, log_int
         exact_epoch = epoch + prog - 1
         acc = 100. * correct / total
         train_loss_batch = train_loss / total
+        semi_train_loss_batch = semi_train_loss / total
 
         if (batch_idx + 1) % log_interval == 0:
-            print('[Train] Epoch: {:.2f} [{}/{} ({:.0f}%)]\tLoss: {:.6f}\tAccuracy: {:.1f} ({}/{})'.format(
-                exact_epoch, batch_idx * len(inputs), len(train_loader.dataset), 100. * batch_idx / len(train_loader),
-                loss.item(), acc, correct, total))
+            if semi_train_weight==0.0:
+                print('[Train] Epoch: {:.2f} [{}/{} ({:.0f}%)]\tLoss: {:.6f}\tAccuracy: {:.1f} ({}/{})'.format(
+                    exact_epoch, batch_idx * len(inputs), len(train_loader.dataset), 100. * batch_idx / len(train_loader),
+                    loss.item(), acc, correct, total))
+            else:
+                print('[Train] Epoch: {:.2f} [{}/{} ({:.0f}%)]\tLoss: {:.6f}\tSemi Loss: {:.6f}\tAccuracy: {:.1f} ({}/{})'.format(
+                    exact_epoch, batch_idx * len(inputs), len(train_loader.dataset), 100. * batch_idx / len(train_loader),
+                    loss.item(),semi_loss.item(), acc, correct, total))
 
         if writer is not None:
             writer.add_scalar('Loss/train', loss.item(), exact_epoch)
@@ -106,8 +119,63 @@ def train_step(model, train_loader, criterion, optimizer, epoch, device, log_int
     t_epoch = int(t_end - t_start)
     acc = 100. * correct / total
 
-    return train_loss_batch, acc
+    return train_loss_batch, semi_train_loss_batch, acc
 
+def semi_train_step(model, train_loader, semi_loader, semi_train_weight, criterion, optimizer, epoch, device, log_interval=10, writer=None):
+    model.train()
+    train_loss = 0.
+    semi_train_loss = 0.
+    correct = 0
+    total = 0
+    train_loss_batch = 0
+    epoch_size = len(train_loader.dataset)
+    t_start = time.time()
+
+    for batch_idx, (labeled_data,unlabeled_data) in enumerate(zip(train_loader,semi_loader)):
+        inputs, targets = labeled_data[0].to(device), labeled_data[1].to(device)
+        unlabeled_inputs = unlabeled_data[0].to(device)
+        optimizer.zero_grad()
+        outputs = model(inputs)
+        loss = criterion(outputs, targets)
+        semi_loss = Rotation_Loss(model,unlabeled_inputs)
+        total_loss = loss+semi_loss*semi_train_weight
+        total_loss.backward()
+        optimizer.step()
+
+        if writer is not None:
+            pass
+
+        train_loss += loss.item()
+        semi_train_loss += semi_loss.item()
+        _, predicted = outputs.max(1)
+        total += targets.size(0)
+        if len(targets.size()) == 2:
+            # Labels could be a posterior probability distribution. Use argmax as a proxy.
+            target_probs, target_labels = targets.max(1)
+        else:
+            target_labels = targets
+        correct += predicted.eq(target_labels).sum().item()
+
+        prog = total / epoch_size
+        exact_epoch = epoch + prog - 1
+        acc = 100. * correct / total
+        train_loss_batch = train_loss / total
+        semi_train_loss_batch = semi_train_loss / total
+
+        if (batch_idx + 1) % log_interval == 0:
+            print('[Train] Epoch: {:.2f} [{}/{} ({:.0f}%)]\tLoss: {:.6f}\tSemi Loss: {:.6f}\tAccuracy: {:.1f} ({}/{})'.format(
+                exact_epoch, batch_idx * len(inputs), len(train_loader.dataset), 100. * batch_idx / len(train_loader),
+                loss.item(), semi_loss.item(), acc, correct, total))
+
+        if writer is not None:
+            writer.add_scalar('Loss/train', loss.item(), exact_epoch)
+            writer.add_scalar('Accuracy/train', acc, exact_epoch)
+
+    t_end = time.time()
+    t_epoch = int(t_end - t_start)
+    acc = 100. * correct / total
+
+    return train_loss_batch, semi_train_loss_batch, acc
 
 def test_step(model, test_loader, criterion, device, epoch=0., silent=False, gt_model=None,writer=None):
     model.eval()
@@ -154,7 +222,7 @@ def test_step(model, test_loader, criterion, device, epoch=0., silent=False, gt_
 
 def train_model(model, trainset, out_path, batch_size=64, criterion_train=None, criterion_test=None, testset=None,
                 device=None, num_workers=10, lr=0.1, momentum=0.5, lr_step=30, lr_gamma=0.1, resume=None,
-                epochs=100, log_interval=100, weighted_loss=False, checkpoint_suffix='', optimizer=None, scheduler=None,
+                epochs=100, log_interval=100, weighted_loss=False, semi_train_weight = 0.0, semi_dataset=None, checkpoint_suffix='', optimizer=None, scheduler=None,
                 gt_model=None,writer=None, **kwargs):
     if device is None:
         device = torch.device('cuda')
@@ -165,9 +233,14 @@ def train_model(model, trainset, out_path, batch_size=64, criterion_train=None, 
     # Data loaders
     train_loader = DataLoader(trainset, batch_size=batch_size, shuffle=True, num_workers=num_workers, pin_memory=True)
     if testset is not None:
-        test_loader = DataLoader(testset, batch_size=batch_size, shuffle=False, num_workers=num_workers, pin_memory=True)
+        test_loader = DataLoader(testset, batch_size=128, shuffle=False, num_workers=num_workers, pin_memory=True)
     else:
         test_loader = None
+    
+    if semi_train_weight>0 and semi_dataset is not None:
+        semi_loader = DataLoader(semi_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers, pin_memory=True)
+    else:
+        semi_loader = None
 
     if weighted_loss:
         if not isinstance(trainset.samples[0][1], int):
@@ -215,14 +288,22 @@ def train_model(model, trainset, out_path, batch_size=64, criterion_train=None, 
     log_path = osp.join(out_path, 'train{}.log.tsv'.format(checkpoint_suffix))
     if not osp.exists(log_path):
         with open(log_path, 'w') as wf:
-            columns = ['run_id', 'epoch', 'split', 'loss', 'accuracy/fidelity', 'best_accuracy/fidelity']
-            wf.write('\t'.join(columns) + '\n')
+            if semi_train_weight==0.0:
+                columns = ['run_id', 'epoch', 'split', 'loss', 'accuracy/fidelity', 'best_accuracy/fidelity']
+                wf.write('\t'.join(columns) + '\n')
+            else:
+                columns = ['run_id', 'epoch', 'split', 'loss', 'semi loss', 'accuracy/fidelity', 'best_accuracy/fidelity']
+                wf.write('\t'.join(columns) + '\n')
 
     model_out_path = osp.join(out_path, 'checkpoint{}.pth.tar'.format(checkpoint_suffix))
     for epoch in range(start_epoch, epochs + 1):
-        train_loss, train_acc = train_step(model, train_loader, criterion_train, optimizer, epoch, device,
+        if semi_loader is None:
+            train_loss, semi_loss, train_acc = train_step(model, train_loader, criterion_train, optimizer, epoch, device, semi_train_weight=semi_train_weight,
                                            log_interval=log_interval)
-        scheduler.step(epoch)
+        else:
+            train_loss, semi_loss, train_acc = semi_train_step(model, train_loader, semi_loader, semi_train_weight, criterion_train, optimizer, epoch, device,
+                                           log_interval=log_interval)
+        scheduler.step()
         best_train_acc = max(best_train_acc, train_acc)
 
         if test_loader is not None:
@@ -246,9 +327,14 @@ def train_model(model, trainset, out_path, batch_size=64, criterion_train=None, 
 
         # Log
         with open(log_path, 'a') as af:
-            train_cols = [run_id, epoch, 'train', train_loss, train_acc, best_train_acc]
+            if semi_train_weight==0.0:
+                train_cols = [run_id, epoch, 'train', train_loss, train_acc, best_train_acc]
+                test_cols = [run_id, epoch, 'test', test_loss, '{}/{}'.format(test_acc,test_fidelity), '{}/{}'.format(best_test_acc,best_test_fidelity)]
+            else:
+                train_cols = [run_id, epoch, 'train', train_loss, semi_loss, train_acc, best_train_acc]
+                test_cols = [run_id, epoch, 'test', test_loss, 0.0,'{}/{}'.format(test_acc,test_fidelity), '{}/{}'.format(best_test_acc,best_test_fidelity)]
             af.write('\t'.join([str(c) for c in train_cols]) + '\n')
-            test_cols = [run_id, epoch, 'test', test_loss, '{}/{}'.format(test_acc,test_fidelity), '{}/{}'.format(best_test_acc,best_test_fidelity)]
+            
             af.write('\t'.join([str(c) for c in test_cols]) + '\n')
 
     return model

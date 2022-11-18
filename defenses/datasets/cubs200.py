@@ -27,11 +27,11 @@ __status__ = "Development"
 
 
 class CUBS200(ImageFolder):
-    def __init__(self, train=True, transform=None, target_transform=None):
+    def __init__(self, train=True, transform=None, target_transform=None,**kwargs):
         root = osp.join(cfg.DATASET_ROOT, 'CUB_200_2011')
         if not osp.exists(root):
             raise ValueError('Dataset not found at {}. Please download it from {}.'.format(
-                root, 'http://www.vision.caltech.edu/visipedia/CUB-200-2011.html'
+                root, 'https://data.caltech.edu/records/65de6-vp158'
             ))
 
         # Initialize ImageFolder

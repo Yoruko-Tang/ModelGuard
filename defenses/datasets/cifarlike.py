@@ -53,6 +53,7 @@ class SVHN(TVSVHN):
         else:
             split = train
         super().__init__(root, split, transform, target_transform, download)
+        self.classes = list(range(max(self.labels)+1))
 
 
 class TinyImagesSubset(ImageFolder):

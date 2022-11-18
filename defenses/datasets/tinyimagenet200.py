@@ -41,7 +41,7 @@ class TinyImageNet200(ImageFolder):
             ))
 
         # Initialize ImageFolder
-        _root = osp.join(root, 'train' if train else 'val')
+        _root = osp.join(root, 'train' if train else 'val/val2')
         super().__init__(root=_root, transform=transform,
                          target_transform=target_transform)
         self.root = root

@@ -5,6 +5,7 @@ import torch.utils.model_zoo as model_zoo
 import torch.nn.functional as F
 import types
 import re
+import torch.nn as nn
 
 #################################################################
 # You can find the definitions of those models here:
@@ -311,10 +312,13 @@ def inceptionv3(num_classes=1000, pretrained='imagenet'):
 ###############################################################
 # ResNets
 
-def modify_resnets(model):
+def modify_resnets(model,rot_semi=False):
     # Modify attributs
     model.last_linear = model.fc
     model.fc = None
+    model.rot_semi = rot_semi
+    if rot_semi:
+        model.rot_classifier = nn.Linear(model.last_linear.in_features, 4)
 
     def features(self, input):
         x = self.conv1(input)
@@ -338,61 +342,70 @@ def modify_resnets(model):
         x = self.features(input)
         x = self.logits(x)
         return x
+    
+    def rot_forward(self, input):
+        features = self.features(input)
+        x = self.avgpool(features)
+        x = x.view(x.size(0), -1)
+        x = self.rot_classifier(x)
+        return x
 
     # Modify methods
     model.features = types.MethodType(features, model)
     model.logits = types.MethodType(logits, model)
     model.forward = types.MethodType(forward, model)
+    if rot_semi:
+        model.rot_forward = types.MethodType(rot_forward,model)
     return model
 
-def resnet18(num_classes=1000, pretrained='imagenet'):
+def resnet18(num_classes=1000, pretrained='imagenet', rot_semi=False):
     """Constructs a ResNet-18 model.
     """
     model = models.resnet18(pretrained=False)
     if pretrained is not None:
         settings = pretrained_settings['resnet18'][pretrained]
         model = load_pretrained(model, num_classes, settings)
-    model = modify_resnets(model)
+    model = modify_resnets(model,rot_semi)
     return model
 
-def resnet34(num_classes=1000, pretrained='imagenet'):
+def resnet34(num_classes=1000, pretrained='imagenet', rot_semi=False):
     """Constructs a ResNet-34 model.
     """
     model = models.resnet34(pretrained=False)
     if pretrained is not None:
         settings = pretrained_settings['resnet34'][pretrained]
         model = load_pretrained(model, num_classes, settings)
-    model = modify_resnets(model)
+    model = modify_resnets(model,rot_semi)
     return model
 
-def resnet50(num_classes=1000, pretrained='imagenet'):
+def resnet50(num_classes=1000, pretrained='imagenet', rot_semi=False):
     """Constructs a ResNet-50 model.
     """
     model = models.resnet50(pretrained=False)
     if pretrained is not None:
         settings = pretrained_settings['resnet50'][pretrained]
         model = load_pretrained(model, num_classes, settings)
-    model = modify_resnets(model)
+    model = modify_resnets(model,rot_semi)
     return model
 
-def resnet101(num_classes=1000, pretrained='imagenet'):
+def resnet101(num_classes=1000, pretrained='imagenet', rot_semi=False):
     """Constructs a ResNet-101 model.
     """
     model = models.resnet101(pretrained=False)
     if pretrained is not None:
         settings = pretrained_settings['resnet101'][pretrained]
         model = load_pretrained(model, num_classes, settings)
-    model = modify_resnets(model)
+    model = modify_resnets(model,rot_semi)
     return model
 
-def resnet152(num_classes=1000, pretrained='imagenet'):
+def resnet152(num_classes=1000, pretrained='imagenet', rot_semi=False):
     """Constructs a ResNet-152 model.
     """
     model = models.resnet152(pretrained=False)
     if pretrained is not None:
         settings = pretrained_settings['resnet152'][pretrained]
         model = load_pretrained(model, num_classes, settings)
-    model = modify_resnets(model)
+    model = modify_resnets(model,rot_semi)
     return model
 
 ###############################################################
@@ -453,7 +466,7 @@ def squeezenet1_1(num_classes=1000, pretrained='imagenet'):
 ###############################################################
 # VGGs
 
-def modify_vggs(model):
+def modify_vggs(model,rot_semi=False):
     # Modify attributs
     model._features = model.features
     del model.features
@@ -465,6 +478,9 @@ def modify_vggs(model):
     model.dropout1 = model.classifier[5]
     model.last_linear = model.classifier[6]
     del model.classifier
+    model.rot_semi = rot_semi
+    if rot_semi:
+        model.rot_classifier = nn.Linear(model.last_linear.in_features, 4)
 
     def features(self, input):
         x = self._features(input)
@@ -486,88 +502,97 @@ def modify_vggs(model):
         x = self.logits(x)
         return x
 
+    def rot_forward(self, input):
+        features = self.features(input)
+        x = self.relu1(features)
+        x = self.dropout1(x)
+        x = self.rot_classifier(x)
+        return x
+
     # Modify methods
     model.features = types.MethodType(features, model)
     model.logits = types.MethodType(logits, model)
     model.forward = types.MethodType(forward, model)
+    if rot_semi:
+        model.rot_forward = types.MethodType(rot_forward,model)
     return model
 
-def vgg11(num_classes=1000, pretrained='imagenet'):
+def vgg11(num_classes=1000, pretrained='imagenet', rot_semi=False):
     """VGG 11-layer model (configuration "A")
     """
     model = models.vgg11(pretrained=False)
     if pretrained is not None:
         settings = pretrained_settings['vgg11'][pretrained]
         model = load_pretrained(model, num_classes, settings)
-    model = modify_vggs(model)
+    model = modify_vggs(model,rot_semi)
     return model
 
-def vgg11_bn(num_classes=1000, pretrained='imagenet'):
+def vgg11_bn(num_classes=1000, pretrained='imagenet', rot_semi=False):
     """VGG 11-layer model (configuration "A") with batch normalization
     """
     model = models.vgg11_bn(pretrained=False)
     if pretrained is not None:
         settings = pretrained_settings['vgg11_bn'][pretrained]
         model = load_pretrained(model, num_classes, settings)
-    model = modify_vggs(model)
+    model = modify_vggs(model,rot_semi)
     return model
 
-def vgg13(num_classes=1000, pretrained='imagenet'):
+def vgg13(num_classes=1000, pretrained='imagenet', rot_semi=False):
     """VGG 13-layer model (configuration "B")
     """
     model = models.vgg13(pretrained=False)
     if pretrained is not None:
         settings = pretrained_settings['vgg13'][pretrained]
         model = load_pretrained(model, num_classes, settings)
-    model = modify_vggs(model)
+    model = modify_vggs(model,rot_semi)
     return model
 
-def vgg13_bn(num_classes=1000, pretrained='imagenet'):
+def vgg13_bn(num_classes=1000, pretrained='imagenet', rot_semi=False):
     """VGG 13-layer model (configuration "B") with batch normalization
     """
     model = models.vgg13_bn(pretrained=False)
     if pretrained is not None:
         settings = pretrained_settings['vgg13_bn'][pretrained]
         model = load_pretrained(model, num_classes, settings)
-    model = modify_vggs(model)
+    model = modify_vggs(model,rot_semi)
     return model
 
-def vgg16(num_classes=1000, pretrained='imagenet'):
+def vgg16(num_classes=1000, pretrained='imagenet', rot_semi=False):
     """VGG 16-layer model (configuration "D")
     """
     model = models.vgg16(pretrained=False)
     if pretrained is not None:
         settings = pretrained_settings['vgg16'][pretrained]
         model = load_pretrained(model, num_classes, settings)
-    model = modify_vggs(model)
+    model = modify_vggs(model,rot_semi)
     return model
 
-def vgg16_bn(num_classes=1000, pretrained='imagenet'):
+def vgg16_bn(num_classes=1000, pretrained='imagenet', rot_semi=False):
     """VGG 16-layer model (configuration "D") with batch normalization
     """
     model = models.vgg16_bn(pretrained=False)
     if pretrained is not None:
         settings = pretrained_settings['vgg16_bn'][pretrained]
         model = load_pretrained(model, num_classes, settings)
-    model = modify_vggs(model)
+    model = modify_vggs(model,rot_semi)
     return model
 
-def vgg19(num_classes=1000, pretrained='imagenet'):
+def vgg19(num_classes=1000, pretrained='imagenet', rot_semi=False):
     """VGG 19-layer model (configuration "E")
     """
     model = models.vgg19(pretrained=False)
     if pretrained is not None:
         settings = pretrained_settings['vgg19'][pretrained]
         model = load_pretrained(model, num_classes, settings)
-    model = modify_vggs(model)
+    model = modify_vggs(model,rot_semi)
     return model
 
-def vgg19_bn(num_classes=1000, pretrained='imagenet'):
+def vgg19_bn(num_classes=1000, pretrained='imagenet', rot_semi=False):
     """VGG 19-layer model (configuration 'E') with batch normalization
     """
     model = models.vgg19_bn(pretrained=False)
     if pretrained is not None:
         settings = pretrained_settings['vgg19_bn'][pretrained]
         model = load_pretrained(model, num_classes, settings)
-    model = modify_vggs(model)
+    model = modify_vggs(model,rot_semi)
     return model

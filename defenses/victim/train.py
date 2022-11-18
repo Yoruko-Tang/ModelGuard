@@ -33,7 +33,7 @@ def main():
     parser.add_argument('-o', '--out_path', metavar='PATH', type=str, help='Output path for model',
                         default=cfg.MODEL_DIR)
     parser.add_argument('-d', '--device_id', metavar='D', type=int, help='Device id. -1 for CPU.', default=0)
-    parser.add_argument('-b', '--batch-size', type=int, default=64, metavar='N',
+    parser.add_argument('-b', '--batch_size', type=int, default=64, metavar='N',
                         help='input batch size for training (default: 64)')
     parser.add_argument('-e', '--epochs', type=int, default=100, metavar='N',
                         help='number of epochs to train (default: 100)')
@@ -41,18 +41,18 @@ def main():
                         help='learning rate (default: 0.1)')
     parser.add_argument('--momentum', type=float, default=0.5, metavar='M',
                         help='SGD momentum (default: 0.5)')
-    parser.add_argument('--log-interval', type=int, default=100, metavar='N',
+    parser.add_argument('--log_interval', type=int, default=100, metavar='N',
                         help='how many batches to wait before logging training status')
     parser.add_argument('--resume', default=None, type=str, metavar='PATH',
                         help='path to latest checkpoint (default: none)')
-    parser.add_argument('--lr-step', type=int, default=50, metavar='N',
+    parser.add_argument('--lr_step', type=int, default=50, metavar='N',
                         help='Step sizes for LR')
-    parser.add_argument('--lr-gamma', type=float, default=0.1, metavar='N',
+    parser.add_argument('--lr_gamma', type=float, default=0.1, metavar='N',
                         help='LR Decay Rate')
     parser.add_argument('-w', '--num_workers', metavar='N', type=int, help='# Worker threads to load data', default=10)
     parser.add_argument('--train_subset', type=int, help='Use a subset of train set', default=None)
     parser.add_argument('--pretrained', type=str, help='Use pretrained network', default=None)
-    parser.add_argument('--weighted-loss', action='store_true', help='Use a weighted loss', default=None)
+    parser.add_argument('--weighted_loss', action='store_true', help='Use a weighted loss', default=None)
     args = parser.parse_args()
     params = vars(args)
 

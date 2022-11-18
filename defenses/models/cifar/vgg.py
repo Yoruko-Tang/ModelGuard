@@ -22,16 +22,26 @@ model_urls = {
 
 class VGG(nn.Module):
 
-    def __init__(self, features, num_classes=1000):
+    def __init__(self, features, num_classes=1000, rot_semi=False,**kargs):
         super(VGG, self).__init__()
         self._features = features
         self.classifier = nn.Linear(512, num_classes)
         self._initialize_weights()
+        self.rot_semi = rot_semi
+        if rot_semi:
+            self.rot_classifier = nn.Linear(512, 4)
 
     def forward(self, x):
         x = self._features(x)
         x = x.view(x.size(0), -1)
         x = self.classifier(x)
+        return x
+
+    def rot_forward(self, x):
+        assert self.rot_semi, "Have not specified semisupervised loss in VGG!"
+        x = self._features(x)
+        x = x.view(x.size(0), -1)
+        x = self.rot_classifier(x)
         return x
 
     def _initialize_weights(self):

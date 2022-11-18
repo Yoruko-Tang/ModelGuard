@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import os.path as osp
+import os
 
 import defenses.models.cifar
 import defenses.models.mnist
@@ -10,62 +11,56 @@ import defenses.models.imagenet # Need Pretrainedmodel module
 def get_net(modelname, modeltype, pretrained=None, **kwargs):
     assert modeltype in ('mnist', 'cifar', 'imagenet')
     # print('[DEBUG] pretrained={}\tnum_classes={}'.format(pretrained, kwargs['num_classes']))
-    if pretrained and pretrained is not None:
+    if pretrained is not None:
         return get_pretrainednet(modelname, modeltype, pretrained, **kwargs)
     else:
-        try:
-            # This should have ideally worked:
-            model = eval('defenses.models.{}.{}'.format(modeltype, modelname))(**kwargs)
-        except AssertionError:
-            # But, there's a bug in pretrained models which ignores the num_classes attribute.
-            # So, temporarily load the model and replace the last linear layer
-            model = eval('defenses.models.{}.{}'.format(modeltype, modelname))()
-            if 'num_classes' in kwargs:
-                num_classes = kwargs['num_classes']
-                in_feat = model.last_linear.in_features
-                model.last_linear = nn.Linear(in_feat, num_classes)
+        model = eval('defenses.models.{}.{}'.format(modeltype, modelname))(pretrained=None,**kwargs)
+        if 'num_classes' in kwargs and modeltype=='imagenet':# num_classes does not work for imagenet model
+            num_classes = kwargs['num_classes']
+            in_feat = model.last_linear.in_features
+            model.last_linear = nn.Linear(in_feat, num_classes)
         return model
+        
 
 
 def get_pretrainednet(modelname, modeltype, pretrained='imagenet', num_classes=1000, **kwargs):
-    if pretrained == 'imagenet' and num_classes==1000:
-        return get_imagenet_pretrainednet(modelname, num_classes, **kwargs)
-    elif pretrained == 'imagenet' or osp.exists(pretrained):
-        try:
-            # This should have ideally worked:
-            model = eval('defenses.models.{}.{}'.format(modeltype, modelname))(num_classes=num_classes, **kwargs)
-        except AssertionError:
-            # print('[DEBUG] pretrained={}\tnum_classes={}'.format(pretrained, num_classes))
-            # But, there's a bug in pretrained models which ignores the num_classes attribute.
-            # So, temporarily load the model and replace the last linear layer
-            model = eval('defenses.models.{}.{}'.format(modeltype, modelname))()
-            in_feat = model.last_linear.in_features
-            model.last_linear = nn.Linear(in_feat, num_classes)
-        if pretrained == 'imagenet':
-            pretrained_model = get_imagenet_pretrainednet(modelname, num_classes, **kwargs)
-            pretrained_state_dict = pretrained_model.state_dict()
-        else:
-            checkpoint_path = osp.join(pretrained, 'model_best.pth.tar')
-            if not osp.exists(checkpoint_path):
-                checkpoint_path = osp.join(pretrained, 'checkpoint.pth.tar')
-            print("=> loading checkpoint '{}'".format(checkpoint_path))
-            checkpoint = torch.load(checkpoint_path)
-            pretrained_state_dict = checkpoint.get('state_dict', checkpoint)
-        copy_weights_(pretrained_state_dict, model.state_dict())
-        return model
+    model = eval('defenses.models.{}.{}'.format(modeltype, modelname))(pretrained=None,num_classes=num_classes,**kwargs)
+    if modeltype=='imagenet' and num_classes!=1000: # num_classes does not work for imagenet model
+        in_feat = model.last_linear.in_features
+        model.last_linear = nn.Linear(in_feat, num_classes)
+
+    if pretrained == 'imagenet': # use imagenet pretrained net
+        pretrained_model = get_imagenet_pretrainednet(modelname, **kwargs)
+        pretrained_state_dict = pretrained_model.state_dict()
+        
+    elif osp.exists(pretrained): # load a model from specified directory
+        checkpoint_path = None
+        for file in os.listdir(pretrained):
+            if ".pth.tar" in file:
+                checkpoint_path=osp.join(pretrained,file)
+                break
+        if checkpoint_path is None:
+            raise RuntimeError("Checkpoint does not exist in directory '{}'".format(pretrained))
+
+        print("=> loading checkpoint '{}'".format(checkpoint_path))
+        checkpoint = torch.load(checkpoint_path)
+        pretrained_state_dict = checkpoint.get('state_dict', checkpoint)
+        epoch = checkpoint['epoch']
+        best_test_acc = checkpoint['best_acc']
+        print("=> loaded checkpoint (epoch {}, acc={:.2f})".format(epoch, best_test_acc))
+
+        
     else:
         raise ValueError('Currently only supported for imagenet or existing pretrained models')
 
+    copy_weights_(pretrained_state_dict, model.state_dict())
+    return model
 
-def get_imagenet_pretrainednet(modelname, num_classes=1000, **kwargs):
+
+def get_imagenet_pretrainednet(modelname, **kwargs):
     valid_models = defenses.models.imagenet.__dict__.keys()
     assert modelname in valid_models, 'Model not recognized, Supported models = {}'.format(valid_models)
-    model = defenses.models.imagenet.__dict__[modelname](pretrained='imagenet')
-    if num_classes != 1000:
-        # Replace last linear layer
-        in_features = model.last_linear.in_features
-        out_features = num_classes
-        model.last_linear = nn.Linear(in_features, out_features, bias=True)
+    model = defenses.models.imagenet.__dict__[modelname](pretrained='imagenet',**kwargs)
     return model
 
 

@@ -6,7 +6,7 @@ import os.path as osp
 
 import numpy as np
 from torchvision.datasets import ImageFolder
-
+from torchvision.datasets import ImageNet as TVImageNet
 import defenses.config as cfg
 
 __author__ = "Tribhuvanesh Orekondy"
@@ -14,19 +14,31 @@ __maintainer__ = "Tribhuvanesh Orekondy"
 __email__ = "orekondy@mpi-inf.mpg.de"
 __status__ = "Development"
 
+# class ImageNet1k(TVImageNet):
+#     root = "/home/public/ImageNet"
+#     def __init__(self, train=True, transform=None, target_transform=None):
+#         split = 'train' if train else 'val'
+#         # root = osp.join(cfg.DATASET_ROOT, 'ILSVRC2012')
+#         if not osp.exists(self.root):
+#             raise ValueError('Dataset not found at {}. Please download it from {}.'.format(
+#                 self.root, 'http://image-net.org/download-images'
+#             ))
+#         super().__init__(self.root, split, transform=transform, target_transform=target_transform,download=False)
+
 
 class ImageNet1k(ImageFolder):
     test_frac = 0.2
 
-    def __init__(self, train=True, transform=None, target_transform=None):
-        root = osp.join(cfg.DATASET_ROOT, 'ILSVRC2012')
+    def __init__(self, train=True, transform=None, target_transform=None,**kwargs):
+        # root = osp.join(cfg.DATASET_ROOT, 'ILSVRC2012')
+        root = "/home/public/ImageNet"
         if not osp.exists(root):
             raise ValueError('Dataset not found at {}. Please download it from {}.'.format(
                 root, 'http://image-net.org/download-images'
             ))
 
         # Initialize ImageFolder
-        super().__init__(root=osp.join(root, 'training_imgs'), transform=transform,
+        super().__init__(root=osp.join(root, 'train'), transform=transform,
                          target_transform=target_transform)
         self.root = root
 

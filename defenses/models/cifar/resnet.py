@@ -101,7 +101,7 @@ class Bottleneck(nn.Module):
 
 class ResNet(nn.Module):
 
-    def __init__(self, depth, num_classes=1000, block_name='BasicBlock'):
+    def __init__(self, depth, num_classes=1000, block_name='BasicBlock', rot_semi=False,**kargs):
         super(ResNet, self).__init__()
         # Model type specifies number of layers for CIFAR-10 model
         if block_name.lower() == 'basicblock':
@@ -125,6 +125,10 @@ class ResNet(nn.Module):
         self.layer3 = self._make_layer(block, 64, n, stride=2)
         self.avgpool = nn.AvgPool2d(8)
         self.fc = nn.Linear(64 * block.expansion, num_classes)
+        
+        self.rot_semi = rot_semi
+        if rot_semi:
+            self.rot_classifier = nn.Linear(64 * block.expansion,4)
 
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -165,7 +169,21 @@ class ResNet(nn.Module):
         x = self.fc(x)
 
         return x
+    
+    def rot_forward(self,x):
+        assert self.rot_semi, "Have not specified semisupervised loss in VGG!"
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = self.relu(x)    # 32x32
 
+        x = self.layer1(x)  # 32x32
+        x = self.layer2(x)  # 16x16
+        x = self.layer3(x)  # 8x8
+
+        x = self.avgpool(x)
+        x = x.view(x.size(0), -1)
+        x = self.rot_classifier(x)
+        return x
 
 def resnet(**kwargs):
     """
@@ -174,13 +192,13 @@ def resnet(**kwargs):
     return ResNet(**kwargs)
 
 
-def resnet18(num_classes=1000):
-    return resnet(depth=20, num_classes=num_classes)
+def resnet18(num_classes=1000,**kwargs):
+    return resnet(depth=20, num_classes=num_classes,**kwargs)
 
 
-def resnet34(num_classes=1000):
-    return resnet(depth=32, num_classes=num_classes)
+def resnet34(num_classes=1000,**kwargs):
+    return resnet(depth=32, num_classes=num_classes,**kwargs)
 
 
-def resnet50(num_classes=1000):
-    return resnet(depth=56, num_classes=num_classes)
+def resnet50(num_classes=1000,**kwargs):
+    return resnet(depth=56, num_classes=num_classes,**kwargs)

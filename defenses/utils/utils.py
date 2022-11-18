@@ -10,7 +10,7 @@ def create_dir(dir_path):
 
 def parse_defense_kwargs(kwargs_str):
     kwargs = dict()
-    for entry in kwargs_str.split(','):
+    for entry in kwargs_str.split(';'):
         if len(entry) < 1:
             continue
         key, value = entry.split(':')

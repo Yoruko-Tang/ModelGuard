@@ -9,6 +9,7 @@ import torch
 import torch.nn.functional as F
 
 from defenses.utils.type_checks import TypeCheck
+from defenses.utils.utils import suppress_stdout
 from defenses import datasets
 
 from defenses.victim import Blackbox
@@ -52,62 +53,63 @@ class MLD(Blackbox):
                      \sum_i z_i<=\epsilon
         (optional)   argmax y_i = argmax y'_i for all i = 1,...,n
         """
-        n,K = y.shape
-        y_ori = y.clone()
-        
-        with torch.no_grad():
-            # c = log(y)
-            c = torch.log(y+1e-6).flatten().cpu().numpy()# avoid too small y_i such that -log(y) is too large
-            # c = np.concatenate([c,np.zeros(n*K)],axis=None) # dimension of c should be 2nk
-        y = y.detach().cpu().numpy()
+        with suppress_stdout():
+            n,K = y.shape
+            y_ori = y.clone()
+            
+            with torch.no_grad():
+                # c = log(y)
+                c = torch.log(y+1e-6).flatten().cpu().numpy()# avoid too small y_i such that -log(y) is too large
+                # c = np.concatenate([c,np.zeros(n*K)],axis=None) # dimension of c should be 2nk
+            y = y.detach().cpu().numpy()
 
-        prob = LpProblem("MLD",LpMinimize)
-        ys = []
-        zs = []
-        # build variable 
-        for i in range(n):
-            y_prime = LpVariable.dicts("y_%d"%i,list(range(K)),lowBound=0.0,upBound=1.0)
-            ys.append(y_prime)
-            z = LpVariable.dicts("z_%d"%i,list(range(K)),lowBound=0.0)
-            zs.append(z)
-
-        # add objective function
-        prob += lpSum([c[j]*ys[j//K][j%K] for j in range(len(c))])
-        # add constraints
-        for i in range(n):
-            # simplex constraints
-            if tolerance is not None and tolerance >0:
-                prob += lpSum([ys[i][j] for j in range(K)])>=1.0-tolerance, "Simplex Constraint %d lower bound"%i
-                prob += lpSum([ys[i][j] for j in range(K)])<=1.0+tolerance, "Simplex Constraint %d upper bound"%i
-            else:
-                prob += lpSum([ys[i][j] for j in range(K)])==1.0, "Simplex Constraint %d"%i
-            for j in range(K):
-                # z>=|y-y'|
-                prob += zs[i][j]+ys[i][j]>=y[i,j], "z[{0},{1}]>=y[{0},{1}]-y'[{0},{1}]".format(i,j)
-                prob += zs[i][j]-ys[i][j]>=-y[i,j], "z[{0},{1}]>=y'[{0},{1}]-y[{0},{1}]".format(i,j)
-        
-        # perturbation constraints
-        if batch_constraint:
-            prob += lpSum([zs[j//K][j%K] for j in range(n*K)])<=epsilon, "Perturbation Bound"
-        else:
+            prob = LpProblem("MLD",LpMinimize)
+            ys = []
+            zs = []
+            # build variable 
             for i in range(n):
-                prob += lpSum([zs[i][j] for j in range(K)])<=epsilon, "Perturbation Bound %d"%i
+                y_prime = LpVariable.dicts("y_%d"%i,list(range(K)),lowBound=0.0,upBound=1.0)
+                ys.append(y_prime)
+                z = LpVariable.dicts("z_%d"%i,list(range(K)),lowBound=0.0)
+                zs.append(z)
 
-        
-        max_idxs = np.argmax(y,axis=1)
-        for i in range(n):
-            for j in range(K):
-                if j != max_idxs[i]:
-                    prob += ys[i][max_idxs[i]]-ys[i][j]>=1e-4, "y'[{0},{1}]>=y'[{0},{2}]".format(i,max_idxs[i],j)
-        
-        
-        prob.solve()
-        y_star = np.zeros([n,K])
-        min_val = torch.tensor(value(prob.objective))
-        for i in range(n):
-            for j in range(K):
-                y_star[i,j]=ys[i][j].varValue
-        y_star = torch.tensor(y_star).to(y_ori)
+            # add objective function
+            prob += lpSum([c[j]*ys[j//K][j%K] for j in range(len(c))])
+            # add constraints
+            for i in range(n):
+                # simplex constraints
+                if tolerance is not None and tolerance >0:
+                    prob += lpSum([ys[i][j] for j in range(K)])>=1.0-tolerance, "Simplex Constraint %d lower bound"%i
+                    prob += lpSum([ys[i][j] for j in range(K)])<=1.0+tolerance, "Simplex Constraint %d upper bound"%i
+                else:
+                    prob += lpSum([ys[i][j] for j in range(K)])==1.0, "Simplex Constraint %d"%i
+                for j in range(K):
+                    # z>=|y-y'|
+                    prob += zs[i][j]+ys[i][j]>=y[i,j], "z[{0},{1}]>=y[{0},{1}]-y'[{0},{1}]".format(i,j)
+                    prob += zs[i][j]-ys[i][j]>=-y[i,j], "z[{0},{1}]>=y'[{0},{1}]-y[{0},{1}]".format(i,j)
+            
+            # perturbation constraints
+            if batch_constraint:
+                prob += lpSum([zs[j//K][j%K] for j in range(n*K)])<=epsilon, "Perturbation Bound"
+            else:
+                for i in range(n):
+                    prob += lpSum([zs[i][j] for j in range(K)])<=epsilon, "Perturbation Bound %d"%i
+
+            
+            max_idxs = np.argmax(y,axis=1)
+            for i in range(n):
+                for j in range(K):
+                    if j != max_idxs[i]:
+                        prob += ys[i][max_idxs[i]]-ys[i][j]>=1e-4, "y'[{0},{1}]>=y'[{0},{2}]".format(i,max_idxs[i],j)
+            
+            
+            prob.solve()
+            y_star = np.zeros([n,K])
+            min_val = torch.tensor(value(prob.objective))
+            for i in range(n):
+                for j in range(K):
+                    y_star[i,j]=ys[i][j].varValue
+            y_star = torch.tensor(y_star).to(y_ori)
         
         return y_star,min_val
         

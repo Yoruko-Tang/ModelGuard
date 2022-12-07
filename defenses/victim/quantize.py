@@ -74,7 +74,7 @@ class incremental_kmeans():
                 pickle.dump([centroid.cpu() for centroid in self.centroids],f)
             
         for l in range(len(self.centroids)):
-            print("Label %d has %d centroids!"%(l,len(self.centroids[l])))
+            print("Initialized quantizer: label %d has %d centroids!"%(l,len(self.centroids[l])))
 
         
         for n in range(len(self.labels)):
@@ -233,10 +233,10 @@ class incremental_kmeans():
             val_distance, _ = self.quantize(data,centroids)
             # cents = centroids[cent_idxs]
             # val_distance = torch.norm(data-cents,p=self.norm,dim=1)
-            mean_dis = torch.mean(val_distance,dim=0)
+            # mean_dis = torch.mean(val_distance,dim=0)
             max_dis,max_idx = torch.max(val_distance,dim=0)
 
-            if mean_dis>self.epsilon: # keep adding new centroids until the constraint is satisfied
+            if max_dis>self.epsilon: # keep adding new centroids until the constraint is satisfied
                 centroids = torch.cat([centroids,data[max_idx,:].reshape([1,-1])],dim=0)
                 centroids = self.k_means(data,centroids)
             else:

@@ -85,6 +85,15 @@ class RandomAdversaryIters(object):
         end_B = niters
         self.idx_set = set(self.all_idxs[:budget])
 
+        stat = (self.label_recover is not None) and (self.blackbox.log_path is not None)
+        if stat:
+            origin_transfer_list = []
+            log_path = self.blackbox.log_path.replace('distance','gtdistance')
+            if not osp.exists(log_path):
+                with open(log_path, 'w') as wf:
+                    columns = ['call_count', 'l1_mean', 'l1_std', 'l2_mean', 'l2_std', 'kl_mean', 'kl_std']
+                    wf.write('\t'.join(columns) + '\n')
+
         print('Constructing transferset using: # unique images = {}, # queries = {}'.format(len(self.idx_set), niters))
         if niters > budget:
             print('!!! WARNING !!! niters ({}) > budget ({}). Images will be repeated.'.format(niters, budget))
@@ -92,12 +101,15 @@ class RandomAdversaryIters(object):
         if queries_per_image > 1:
             print('=> Obtaining mean posteriors over {} predictions per image'.format(queries_per_image))
 
+        num_queries = 0
         with tqdm(total=niters) as pbar:
             for t, B in enumerate(range(start_B, end_B, self.batch_size)):
 
                 idxs = np.random.choice(list(self.idx_set), replace=False,
                                         size=min(self.batch_size, niters - len(self.transferset)))
                 self.idx_set = self.idx_set - set(idxs)
+                
+                num_queries += len(idxs)*queries_per_image
 
                 if len(self.idx_set) == 0:
                     # print('=> Query set exhausted. Now repeating input examples.')
@@ -105,15 +117,28 @@ class RandomAdversaryIters(object):
 
                 x_t = torch.stack([self.queryset[i][0] for i in idxs]).to(self.blackbox.device)
                 y_t_list = []
+                
                 for _ in range(queries_per_image):
                     t_start = time.time()
-                    _y_t = self.blackbox(x_t)
+                    if stat:
+                        _y_t, y_true = self.blackbox(x_t,return_origin=True)
+                    else:
+                        _y_t = self.blackbox(x_t)
                     if self.label_recover is not None:
-                        _y_t = self.label_recover(_y_t).cpu()
+                        _y_t = self.label_recover(_y_t)
                     t_end = time.time()
                     self.call_times.append(t_end - t_start)
                     y_t_list.append(_y_t)
+                    if stat:
+                        origin_transfer_list.append([y_true.cpu().numpy(),_y_t.cpu().numpy()])
                 y_t = torch.stack(y_t_list).mean(dim=0)    # Mean over queries
+
+                if stat and num_queries%1000==0:
+                    l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std = self.blackbox.calc_query_distances(origin_transfer_list)
+                    with open(log_path, 'a') as af:
+                        test_cols = [num_queries, l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std]
+                        af.write('\t'.join([str(c) for c in test_cols]) + '\n')
+
 
                 if hasattr(self.queryset, 'samples'):
                     # Any DatasetFolder (or subclass) has this attribute
@@ -144,6 +169,10 @@ def main():
                         choices=knockoff_utils.BBOX_CHOICES, default='none')
     parser.add_argument('defense_args', metavar='STR', type=str, help='Blackbox arguments in format "k1:v1,k2:v2,..."')
     parser.add_argument('--defense_aware',type=int,help="Whether using defense-aware attack",default = 0)
+    parser.add_argument('--recover_table_size',type=int,default=1000000,help="Size of the recover table")
+    parser.add_argument('--dir_mle_path',type=str,help="Whether using MLE to get the dirichelet distribution factor",default = None)
+    parser.add_argument('--recover_tolerance',type=float,default=1e-4,help = "Tolerance of equivalence in table recover")
+    parser.add_argument('--recover_proc',type=int,default=1,help="Number of processes used to generate recover table")
     parser.add_argument('--quantize',type=int,help="Whether using quantized defense",default=0)
     parser.add_argument('--quantize_args',type=str,help='Quantization arguments in format "k1:v1,k2:v2,..."')
     parser.add_argument('--out_dir', metavar='PATH', type=str,
@@ -212,14 +241,16 @@ def main():
     defense_kwargs['log_prefix'] = 'transfer'
     print('=> Initializing BBox with defense {} and arguments: {}'.format(defense_type, defense_kwargs))
     blackbox = BB.from_modeldir(blackbox_dir, device, **defense_kwargs)
+    quantize_blackbox = None
     if params['quantize']:
         quantize_kwargs = knockoff_utils.parse_defense_kwargs(params['quantize_args'])
         if quantize_kwargs['epsilon'] > 0.0:
             print('=> Initializing Quantizer with arguments: {}'.format(quantize_kwargs))
-            blackbox = incremental_kmeans(blackbox,**quantize_kwargs)
+            quantize_blackbox = incremental_kmeans(blackbox,**quantize_kwargs)
     
     if params['defense_aware']:
-        recover = Table_Recover(blackbox,batch_size=params['batch_size'],recover_mean=True)
+        recover = Table_Recover(blackbox,table_size=params['recover_table_size'],batch_size=params['batch_size'],recover_mean=True,
+                                tolerance=params['recover_tolerance'],estimation_set=params['dir_mle_path'],num_proc=params['recover_proc'])
     else:
         recover = None
 
@@ -230,7 +261,7 @@ def main():
     batch_size = params['batch_size']
     nworkers = params['nworkers']
     if params['policy'] == 'random':
-        adversary = RandomAdversaryIters(blackbox, recover, queryset, batch_size=batch_size)
+        adversary = RandomAdversaryIters(quantize_blackbox if quantize_blackbox is not None else blackbox, recover, queryset, batch_size=batch_size)
     elif params['policy'] == 'adaptive':
         raise NotImplementedError()
     else:

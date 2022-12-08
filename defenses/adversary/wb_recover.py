@@ -44,7 +44,12 @@ class Table_Recover():
         
             with open(table_path, 'wb') as wf:
                 pickle.dump([self.true_label_sample,self.perturbed_label_sample], wf)
-        self.true_label_sample,self.perturbed_label_sample = self.true_label_sample.cpu(),self.perturbed_label_sample.cpu()
+        try:
+            self.true_label_sample,self.perturbed_label_sample = self.true_label_sample.to(self.device),self.perturbed_label_sample.to(self.device)
+        except:
+            print("[Warning]: Not enough GPU memory for storing the lookup table, will use cpu instead!")
+            # self.device = torch.device('cpu')
+            self.true_label_sample,self.perturbed_label_sample = self.true_label_sample.cpu(),self.perturbed_label_sample.cpu()
         self.true_top1 = torch.argmax(self.true_label_sample,dim=1)
         self.log_path = osp.join(self.blackbox.out_path, 'recover_distance{}.log.tsv'.format(self.blackbox.log_prefix))
         self.logger = csv.writer(open(self.log_path,'w'),delimiter='\t')
@@ -175,7 +180,7 @@ class Table_Recover():
 
     def __call__(self, yprime):
         assert yprime.dim()==2, "yprime must be a batch with dim=2"
-        yprime = yprime.cpu() # all operations in this model is performed on CPU to avoid memory running out
+        yprime = yprime.to(self.device) # all operations in this model is performed on CPU to avoid memory running out
         y = []
         rec_dis = []
         top1_label = torch.argmax(yprime,dim=1)
@@ -183,6 +188,7 @@ class Table_Recover():
             # return the true lable with the same top-1 label and minimal perturbed distance
             perturbed_label_filtered = self.perturbed_label_sample[self.true_top1==top1_label[i],:]
             true_label_filtered = self.true_label_sample[self.true_top1==top1_label[i],:]
+            perturbed_label_filtered,true_label_filtered = perturbed_label_filtered.to(self.device),true_label_filtered.to(self.device)
             distances = torch.sum((yprime[i]-perturbed_label_filtered)**2,dim=1)
             if not self.recover_mean:
                 min_idx = torch.argmin(distances)
@@ -197,7 +203,7 @@ class Table_Recover():
         mean_rec_dis = torch.mean(torch.tensor(rec_dis)).cpu().item()
         std_rec_dis = torch.std(torch.tensor(rec_dis)).cpu().item()
         self.logger.writerow([self.call_count,mean_rec_dis,std_rec_dis])
-        y = torch.cat(y,dim=0).to(self.device)
+        y = torch.cat(y,dim=0)
         
         return y
             

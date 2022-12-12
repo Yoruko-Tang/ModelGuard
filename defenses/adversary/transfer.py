@@ -87,11 +87,10 @@ class RandomAdversaryIters(object):
 
         stat = (self.label_recover is not None) and (self.blackbox.log_path is not None)
         if stat:
-            origin_transfer_list = []
             log_path = self.blackbox.log_path.replace('distance','gtdistance')
             if not osp.exists(log_path):
                 with open(log_path, 'w') as wf:
-                    columns = ['call_count', 'l1_mean', 'l1_std', 'l2_mean', 'l2_std', 'kl_mean', 'kl_std']
+                    columns = ['transferset size', 'l1_mean', 'l1_std', 'l2_mean', 'l2_std', 'kl_mean', 'kl_std']
                     wf.write('\t'.join(columns) + '\n')
 
         print('Constructing transferset using: # unique images = {}, # queries = {}'.format(len(self.idx_set), niters))
@@ -102,11 +101,12 @@ class RandomAdversaryIters(object):
             print('=> Obtaining mean posteriors over {} predictions per image'.format(queries_per_image))
 
         num_queries = 0
+        IMG,Y,Y_true = [],[],[]
         with tqdm(total=niters) as pbar:
             for t, B in enumerate(range(start_B, end_B, self.batch_size)):
 
                 idxs = np.random.choice(list(self.idx_set), replace=False,
-                                        size=min(self.batch_size, niters - len(self.transferset)))
+                                        size=min(self.batch_size, niters - num_queries))
                 self.idx_set = self.idx_set - set(idxs)
                 
                 num_queries += len(idxs)*queries_per_image
@@ -116,46 +116,65 @@ class RandomAdversaryIters(object):
                     self.idx_set = set(self.all_idxs[:budget])
 
                 x_t = torch.stack([self.queryset[i][0] for i in idxs]).to(self.blackbox.device)
+
                 y_t_list = []
                 
-                for _ in range(queries_per_image):
+                for i in range(queries_per_image):
                     t_start = time.time()
-                    if stat:
-                        _y_t, y_true = self.blackbox(x_t,return_origin=True)
+                    if stat and i == 0:
+                        _y_t, y_t_true = self.blackbox(x_t,return_origin=True)
                     else:
                         _y_t = self.blackbox(x_t)
-                    if self.label_recover is not None:
-                        _y_t = self.label_recover(_y_t)
+                    
                     t_end = time.time()
                     self.call_times.append(t_end - t_start)
                     y_t_list.append(_y_t)
-                    if stat:
-                        origin_transfer_list.append([y_true.cpu().numpy(),_y_t.cpu().numpy()])
+                    # if stat:
+                    #     origin_transfer_list.append([y_true.cpu().numpy(),_y_t.cpu().numpy()])
                 y_t = torch.stack(y_t_list).mean(dim=0)    # Mean over queries
-
-                if stat and num_queries%1000==0:
-                    l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std = self.blackbox.calc_query_distances(origin_transfer_list)
-                    with open(log_path, 'a') as af:
-                        test_cols = [num_queries, l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std]
-                        af.write('\t'.join([str(c) for c in test_cols]) + '\n')
+                Y.append(y_t)
+                if stat:
+                    Y_true.append(y_t_true)
+                # if stat and num_queries%1000==0:
+                #     l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std = self.blackbox.calc_query_distances(origin_transfer_list)
+                #     with open(log_path, 'a') as af:
+                #         test_cols = [num_queries, l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std]
+                #         af.write('\t'.join([str(c) for c in test_cols]) + '\n')
 
 
                 if hasattr(self.queryset, 'samples'):
                     # Any DatasetFolder (or subclass) has this attribute
                     # Saving image paths are space-efficient
                     img_t = [self.queryset.samples[i][0] for i in idxs]  # Image paths
+                    
                 else:
                     # Otherwise, store the image itself
                     # But, we need to store the non-transformed version
                     img_t = [self.queryset.data[i] for i in idxs]
                     if isinstance(self.queryset.data[0], torch.Tensor):
                         img_t = [x.numpy() for x in img_t]
-
-                for i in range(x_t.size(0)):
-                    img_t_i = img_t[i].squeeze() if isinstance(img_t[i], np.ndarray) else img_t[i]
-                    self.transferset.append((img_t_i, y_t[i].cpu().squeeze()))
-
+                    
+                IMG = IMG + img_t
                 pbar.update(x_t.size(0))
+        
+        Y = torch.cat(Y,dim=0)
+        
+        if self.label_recover is not None:
+            print("Start to recover the clean labels!")
+            with tqdm(total=len(Y)) as pbar:
+                Y = self.label_recover(Y,pbar) # recover the whole transfer set together to reduce cpu-gpu convert
+            if stat:
+                Y_true = torch.cat(Y_true,dim=0)
+                l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std = self.blackbox.calc_query_distances([[Y_true,Y],])
+                with open(log_path, 'a') as af:
+                    test_cols = [num_queries, l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std]
+                    af.write('\t'.join([str(c) for c in test_cols]) + '\n')
+        
+        for i in range(len(IMG)):
+            img_i = IMG[i].squeeze() if isinstance(IMG[i], np.ndarray) else IMG[i]
+            self.transferset.append((img_i, Y[i].cpu().squeeze()))
+
+                
         return self.transferset
 
 
@@ -171,6 +190,7 @@ def main():
     parser.add_argument('--defense_aware',type=int,help="Whether using defense-aware attack",default = 0)
     parser.add_argument('--recover_table_size',type=int,default=1000000,help="Size of the recover table")
     parser.add_argument('--dir_mle_path',type=str,help="Whether using MLE to get the dirichelet distribution factor",default = None)
+    parser.add_argument('--recover_norm',type=int,default=2,help = "Norm used in table recover")
     parser.add_argument('--recover_tolerance',type=float,default=1e-4,help = "Tolerance of equivalence in table recover")
     parser.add_argument('--recover_proc',type=int,default=1,help="Number of processes used to generate recover table")
     parser.add_argument('--quantize',type=int,help="Whether using quantized defense",default=0)
@@ -249,7 +269,7 @@ def main():
             quantize_blackbox = incremental_kmeans(blackbox,**quantize_kwargs)
     
     if params['defense_aware']:
-        recover = Table_Recover(blackbox,table_size=params['recover_table_size'],batch_size=params['batch_size'],recover_mean=True,
+        recover = Table_Recover(blackbox,table_size=params['recover_table_size'],batch_size=params['batch_size'],recover_mean=True,recover_norm=params['recover_norm'],
                                 tolerance=params['recover_tolerance'],estimation_set=params['dir_mle_path'],num_proc=params['recover_proc'])
     else:
         recover = None

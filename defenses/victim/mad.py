@@ -901,7 +901,7 @@ class MAD(Blackbox):
 
     def get_yprime(self,y):
         n,K = y.shape
-        G = torch.eye(n*K).to(self.device)
+        G = torch.eye(n*K).to(y)
         if self.D is None:
             self.D = G.shape[1]
 

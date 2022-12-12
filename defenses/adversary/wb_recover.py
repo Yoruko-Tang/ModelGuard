@@ -1,6 +1,8 @@
 from turtle import distance
 import torch
 import torch.optim as optim
+import torch.nn as nn
+import torch.nn.functional as F
 from torch.distributions import Dirichlet
 from torch.utils.data import TensorDataset,DataLoader
 from tqdm import tqdm
@@ -11,34 +13,79 @@ import numpy as np
 
 from torch.multiprocessing import Process,Manager
 
+from defenses.utils.model import soft_cross_entropy
+numclasses_to_nn = {
+    10:[64,64],
+    100:[512,512],
+    200:[1024,1024],
+    256:[1024,1024]
+}
+
+class Recover_NN(nn.Module):
+    def __init__(self,num_classes=10):
+        super().__init__()
+        hidden_layer=numclasses_to_nn[num_classes]
+        self.fc1 = nn.Linear(num_classes,hidden_layer[0])
+        self.fc2 = nn.Linear(hidden_layer[0],hidden_layer[1])
+        self.fc3 = nn.Linear(hidden_layer[1],num_classes)
+
+    def forward(self,x):
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
+        x = self.fc3(x)
+        return x
+    
+    def predict(self,x):
+        self.eval()
+        output = self.forward(x)
+        output = F.softmax(output,dim=1)
+        return output
+
+
+
 class Table_Recover():
     max_sample_size=5000000
-    def __init__(self,blackbox,table_size=1000000,batch_size=1,recover_mean=False,tolerance=1e-4,dir=True,alpha=None,estimation_set=None,num_proc=1):
+    def __init__(self,blackbox,table_size=1000000,batch_size=1,recover_mean=False,recover_norm=2,tolerance=1e-4,recover_nn=False,dir=True,alpha=None,estimation_set=None,num_proc=1):
         self.table_size = table_size
         self.blackbox = blackbox
+        self.num_classes = self.blackbox.num_classes
         self.device = self.blackbox.device
         self.batch_size = batch_size
         self.recover_mean=recover_mean
+        self.recover_norm = recover_norm
         self.tolerance = tolerance
-
+        self.recover_nn = recover_nn
+        self.true_label_sample,self.perturbed_label_sample = None, None
         
         table_path = osp.join(self.blackbox.out_path, 'recover_table.pickle')
         if osp.exists(table_path):
-            print("Loading Existing Table!")
             with open(table_path,'rb') as wf:
                 self.true_label_sample,self.perturbed_label_sample = pickle.load(wf)
-                
-        else:
+                print("Loaded Existing Table with table length {}!".format(len(self.true_label_sample)))
+                if len(self.true_label_sample)>=table_size:
+                    self.true_label_sample,self.perturbed_label_sample = self.true_label_sample[:table_size,:],self.perturbed_label_sample[:table_size,:]
+                    table_size = 0
+                else:
+                    table_size = table_size-len(self.true_label_sample)
+                    print("Supplementing existing table with {} samples...".format(table_size))
+                               
+        if table_size>0:
             print("Building Recover Table! Total Samples Number={}!".format(table_size))
             if dir:
-                self.true_label_sample = self.get_dirichlet_samples(alpha,table_size,estimation_set)
+                true_label_sample = self.get_dirichlet_samples(alpha,table_size,estimation_set)
             else:
-                self.true_label_sample = self.get_uniform_samples(table_size)
+                true_label_sample = self.get_uniform_samples(table_size)
 
             if num_proc == 1:
-                self.perturbed_label_sample = self.get_perturbed_label_sample(self.blackbox,self.true_label_sample,self.batch_size)
+                perturbed_label_sample = self.get_perturbed_label_sample(self.blackbox,true_label_sample,self.batch_size)
             else:
-                self.perturbed_label_sample = self.get_perturbed_label_sample_parallel(self.blackbox,self.true_label_sample,num_proc)
+                perturbed_label_sample = self.get_perturbed_label_sample_parallel(self.blackbox,true_label_sample,num_proc)
+            
+            if self.true_label_sample is None or self.perturbed_label_sample is None:
+                self.true_label_sample,self.perturbed_label_sample = true_label_sample,perturbed_label_sample
+            else:
+                self.true_label_sample = torch.cat([self.true_label_sample,true_label_sample],dim=0)
+                self.perturbed_label_sample = torch.cat([self.perturbed_label_sample,perturbed_label_sample],dim=0)
  
             print("Recover Table Completed!")
         
@@ -50,12 +97,23 @@ class Table_Recover():
             print("[Warning]: Not enough GPU memory for storing the lookup table, will use cpu instead!")
             # self.device = torch.device('cpu')
             self.true_label_sample,self.perturbed_label_sample = self.true_label_sample.cpu(),self.perturbed_label_sample.cpu()
-        self.true_top1 = torch.argmax(self.true_label_sample,dim=1)
-        self.log_path = osp.join(self.blackbox.out_path, 'recover_distance{}.log.tsv'.format(self.blackbox.log_prefix))
-        self.logger = csv.writer(open(self.log_path,'w'),delimiter='\t')
-        self.logger.writerow(['call count','recover distance mean', 'recover distance std'])
 
-        self.call_count = 0
+        if not recover_nn:
+            self.true_top1 = torch.argmax(self.true_label_sample,dim=1).to(self.device)
+            self.log_path = osp.join(self.blackbox.out_path, 'recover_distance{}.log.tsv'.format(self.blackbox.log_prefix))
+            self.logger = csv.writer(open(self.log_path,'w'),delimiter='\t')
+            self.logger.writerow(['call count','recover distance mean', 'recover distance std'])
+            self.call_count = 0
+        else:
+            print("Training NN for Recovering!")
+            self.nn = Recover_NN(self.num_classes)
+            print(self.nn)
+            self.nn.to(self.device)
+            self.log_path = osp.join(self.blackbox.out_path, 'recover_nn_training.log.tsv')
+            self.logger = csv.writer(open(self.log_path,'w'),delimiter='\t')
+            self.logger.writerow(['Epoch','Loss', 'L2 Distance'])
+            self.nn = self.train_recover_nn(self.nn,self.perturbed_label_sample,self.true_label_sample,epoch=100,batch_size=50000,lr=1e-3)
+
 
     def estimate_dir(self,estimation_set,lr=1e-3,batch_size=None,max_epoch=100,epsilon=1e-4):
         print("Estimating Dirichlet Distribution via Lables in '{}'".format(estimation_set))
@@ -95,7 +153,7 @@ class Table_Recover():
         if estimation_set is not None and osp.exists(estimation_set):
             alpha = [self.estimate_dir(estimation_set),]
         elif alpha is None:# preset alphas
-            alpha = [k*torch.ones(self.blackbox.num_classes).to(self.device)/self.blackbox.num_classes for k in [1.0,]]
+            alpha = [k*torch.ones(self.num_classes).to(self.device)/self.num_classes for k in [1.0,]]
         s = table_size//len(alpha)
 
         for a in alpha:
@@ -119,7 +177,7 @@ class Table_Recover():
 
 
     @staticmethod
-    def get_perturbed_label_sample(blackbox,true_label_sample,batch_size=32,output=None,count=None):
+    def get_perturbed_label_sample(blackbox,true_label_sample,batch_size=32,output=None,count=None,proc_idx=None):
         perturbed_label_sample = []
         if count is None:
             pbar = tqdm(total=len(true_label_sample))
@@ -134,8 +192,8 @@ class Table_Recover():
                 pbar.update(len(perturbed_label))
                 
 
-        if output is not None:
-            output.append(torch.cat(perturbed_label_sample,dim=0))
+        if output is not None and proc_idx is not None:
+            output[proc_idx] = torch.cat(perturbed_label_sample,dim=0)
             return
         else:
             return torch.cat(perturbed_label_sample,dim=0)
@@ -146,16 +204,18 @@ class Table_Recover():
         with Manager() as manager:
             proc_data = np.array_split(true_label_sample,num_proc)
             count = manager.Value('i',0)
-            perturbed_label_output = manager.list()
+            perturbed_label_output = manager.list([None,]*num_proc)
+            # for i in range(num_proc):
+            #     perturbed_label_output.append(None)
             proc = []
             for i in range(num_proc):
-                p = Process(target=Table_Recover.get_perturbed_label_sample,args=(blackbox,proc_data[i],self.batch_size,perturbed_label_output,count))
+                p = Process(target=Table_Recover.get_perturbed_label_sample,args=(blackbox,proc_data[i],self.batch_size,perturbed_label_output,count,i))
                 proc.append(p)
             for p in proc:
                 p.start()
             with tqdm(total=len(true_label_sample)) as pbar:
                 prev_count = 0
-                while len(perturbed_label_output) < num_proc:
+                while None in perturbed_label_output:
                     current_count = count.value
                     if current_count>prev_count:
                         pbar.update(current_count-prev_count)
@@ -176,35 +236,66 @@ class Table_Recover():
         print("Ended multiprocessing with total number of samples = %d"%len(res))
         return res
 
+    def train_recover_nn(self,model,pert_label,true_label,epoch=30,batch_size=50000,lr=1e-2):
+        dataset = TensorDataset(pert_label,true_label)
+        trainloader = DataLoader(dataset,batch_size=batch_size,shuffle=True)
+        optimizer = optim.Adam(model.parameters(),lr=lr)
+        scheduler = optim.lr_scheduler.StepLR(optimizer,step_size=5,gamma=0.5)
+        model.train()
+        for e in tqdm(range(epoch)):
+            for pl,tl in trainloader:
+                pl,tl = pl.to(self.device),tl.to(self.device)
+                output = model(pl)
+                loss = soft_cross_entropy(output,tl)
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+            scheduler.step()
+            l2_dist = torch.mean(torch.norm(model.predict(pl)-tl,p=2,dim=1)).cpu().item()
+            print("Epoch: {}\tLoss: {:.4f}\tL2 Distance: {:.4f}".format(e+1,loss.cpu().item(),l2_dist))
+            self.logger.writerow([e+1,loss.cpu().item(),l2_dist])
 
+        
+        return model
 
-    def __call__(self, yprime):
+    def __call__(self, yprime,pbar=None):
         assert yprime.dim()==2, "yprime must be a batch with dim=2"
         yprime = yprime.to(self.device) # all operations in this model is performed on CPU to avoid memory running out
-        y = []
-        rec_dis = []
-        top1_label = torch.argmax(yprime,dim=1)
-        for i in range(len(yprime)):
-            # return the true lable with the same top-1 label and minimal perturbed distance
-            perturbed_label_filtered = self.perturbed_label_sample[self.true_top1==top1_label[i],:]
-            true_label_filtered = self.true_label_sample[self.true_top1==top1_label[i],:]
-            perturbed_label_filtered,true_label_filtered = perturbed_label_filtered.to(self.device),true_label_filtered.to(self.device)
-            distances = torch.sum((yprime[i]-perturbed_label_filtered)**2,dim=1)
-            if not self.recover_mean:
-                min_idx = torch.argmin(distances)
-                y.append(true_label_filtered[min_idx,:].unsqueeze(0))
-                rec_dis.append(distances[min_idx])
-            else:
-                tolerance = max([self.tolerance,torch.min(distances).cpu().item()])
-                y.append(torch.mean(true_label_filtered[distances<=tolerance,:],dim=0,keepdim=True))
-                rec_dis.append(torch.mean(distances[distances<=tolerance]))
-                
-        self.call_count += len(yprime)
-        mean_rec_dis = torch.mean(torch.tensor(rec_dis)).cpu().item()
-        std_rec_dis = torch.std(torch.tensor(rec_dis)).cpu().item()
-        self.logger.writerow([self.call_count,mean_rec_dis,std_rec_dis])
-        y = torch.cat(y,dim=0)
         
-        return y
+        if self.recover_nn:
+            y = self.nn(yprime)
+        else:
+            res = torch.zeros_like(yprime).to(self.device)
+            rec_dis = []
+            top1_label = torch.argmax(yprime,dim=1)
+            for c in range(self.num_classes):
+                y = []
+                yprime_c = yprime[top1_label==c]
+                perturbed_label_filtered = self.perturbed_label_sample[self.true_top1==c,:]
+                true_label_filtered = self.true_label_sample[self.true_top1==c,:]
+                perturbed_label_filtered,true_label_filtered = perturbed_label_filtered.to(self.device),true_label_filtered.to(self.device)
+                for i in range(len(yprime_c)):
+                    # return the true lable with the same top-1 label and minimal perturbed distance
+                    distances = torch.norm(yprime_c[i]-perturbed_label_filtered,p=self.recover_norm,dim=1)
+                    if not self.recover_mean:
+                        min_idx = torch.argmin(distances)
+                        y.append(true_label_filtered[min_idx,:].unsqueeze(0))
+                        rec_dis.append(distances[min_idx])
+                    else:
+                        tolerance = max([self.tolerance,torch.min(distances).cpu().item()])
+                        y.append(torch.mean(true_label_filtered[distances<=tolerance,:],dim=0,keepdim=True))
+                        rec_dis.append(torch.mean(distances[distances<=tolerance]))
+                    if pbar is not None:
+                        pbar.update(1)
+                
+                res[top1_label==c]=torch.cat(y,dim=0)
+                    
+            self.call_count += len(yprime)
+            mean_rec_dis = torch.mean(torch.tensor(rec_dis)).cpu().item()
+            std_rec_dis = torch.std(torch.tensor(rec_dis)).cpu().item()
+            self.logger.writerow([self.call_count,mean_rec_dis,std_rec_dis])
+            
+        
+        return res
             
 

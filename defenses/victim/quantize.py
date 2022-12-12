@@ -338,6 +338,9 @@ class incremental_kmeans():
                 cents[max_idx==n,:] = self.centroids[n][cent_idxs]
         return cents
 
+    def print_centroid_info(self):
+        for l in range(len(self.centroids)):
+            print("Label %d has %d centroids."%(l,len(self.centroids[l])))
 # if __name__ == '__main__':
     
 #     bb = Blackbox(torch.nn.Linear(10,10))

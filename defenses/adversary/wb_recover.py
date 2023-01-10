@@ -21,6 +21,13 @@ numclasses_to_nn = {
     256:[1024,1024]
 }
 
+numclasses_to_alpha = {
+    10:10,
+    100:100,
+    200:1000,
+    256:1000
+}
+
 class Recover_NN(nn.Module):
     def __init__(self,num_classes=10):
         super().__init__()
@@ -115,35 +122,36 @@ class Table_Recover():
             self.nn = self.train_recover_nn(self.nn,self.perturbed_label_sample,self.true_label_sample,epoch=100,batch_size=50000,lr=1e-3)
 
 
-    def estimate_dir(self,estimation_set,lr=1e-3,batch_size=None,max_epoch=100,epsilon=1e-4):
+    def estimate_dir(self,estimation_set):
         print("Estimating Dirichlet Distribution via Lables in '{}'".format(estimation_set))
         with open(estimation_set,'rb') as wf:
             estimation_data = pickle.load(wf)
             estimation_label = torch.cat([torch.tensor(estimation_data[i][1]).reshape([1,-1]) for i in range(len(estimation_data))],dim=0)
-            estimation_dataloader = DataLoader(TensorDataset(estimation_label),batch_size=batch_size if batch_size is not None else len(estimation_data),shuffle=True)
-        alpha = torch.ones(estimation_label.size(1)).to(self.device)
-        alpha.requires_grad_()
-        Dir = Dirichlet(alpha)
-        optimizer = optim.Adam([alpha,],lr = lr)
-        for e in range(max_epoch):
-            for _,label in estimation_dataloader:
-                old_alpha = alpha.clone().detach()
-                label = label.to(self.device)
-                optimizer.zero_grad()
-                log_prob = Dir.log_prob(label)
-                loss = -torch.mean(log_prob)
+        return estimation_label.to(self.device)
+        #     estimation_dataloader = DataLoader(TensorDataset(estimation_label),batch_size=batch_size if batch_size is not None else len(estimation_data),shuffle=True)
+        # alpha = torch.ones(estimation_label.size(1)).to(self.device)
+        # alpha.requires_grad_()
+        # Dir = Dirichlet(alpha)
+        # optimizer = optim.Adam([alpha,],lr = lr)
+        # for e in range(max_epoch):
+        #     for _,label in estimation_dataloader:
+        #         old_alpha = alpha.clone().detach()
+        #         label = label.to(self.device)
+        #         optimizer.zero_grad()
+        #         log_prob = Dir.log_prob(label)
+        #         loss = -torch.mean(log_prob)
 
-                loss.backward()
-                optimizer.step()
+        #         loss.backward()
+        #         optimizer.step()
 
-                dist = torch.norm(alpha.data-old_alpha,p=2).item()
-                if dist<epsilon:
-                    break
+        #         dist = torch.norm(alpha.data-old_alpha,p=2).item()
+        #         if dist<epsilon:
+        #             break
             
-            print("Epoch:{}\tNeg Log Prob Loss:{:.4f}".format(e,loss.item()))
-            if dist<epsilon:
-                break
-        return alpha.detach_()
+        #     print("Epoch:{}\tNeg Log Prob Loss:{:.4f}".format(e,loss.item()))
+        #     if dist<epsilon:
+        #         break
+        # return alpha.detach_()
 
     def get_dirichlet_samples(self,alpha=None,table_size=1000000,estimation_set=None):
         """
@@ -151,7 +159,7 @@ class Table_Recover():
         """
         sample_list = []
         if estimation_set is not None and osp.exists(estimation_set):
-            alpha = [self.estimate_dir(estimation_set),]
+            alpha = self.estimate_dir(estimation_set)*numclasses_to_alpha[self.num_classes]
         elif alpha is None:# preset alphas
             alpha = [k*torch.ones(self.num_classes).to(self.device)/self.num_classes for k in [1.0,]]
         s = table_size//len(alpha)

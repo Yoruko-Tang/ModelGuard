@@ -12,7 +12,7 @@ def Rotation_Loss(model,unlabled_data):
                            torch.ones(len(unlabled_data))*3],dim=0).to(unlabled_data).long()
 
     rot_pred = model.rot_forward(rot_data)
-    rot_loss = F.cross_entropy(rot_pred,rot_label)/4.0
+    rot_loss = F.cross_entropy(rot_pred,rot_label)
     return rot_loss
 
 

@@ -50,7 +50,7 @@ class Blackbox(object):
             self.log_path = osp.join(self.out_path, 'distance{}.log.tsv'.format(self.log_prefix))
             if not osp.exists(self.log_path):
                 with open(self.log_path, 'w') as wf:
-                    columns = ['call_count', 'l1_mean', 'l1_std', 'l2_mean', 'l2_std', 'kl_mean', 'kl_std']
+                    columns = ['call_count', 'l1_max', 'l1_mean', 'l1_std', 'l2_mean', 'l2_std', 'kl_mean', 'kl_std']
                     wf.write('\t'.join(columns) + '\n')
         else:
             self.log_path = None
@@ -125,14 +125,17 @@ class Blackbox(object):
         for i in range(len(queries)):
             y_v, y_prime, *_ = queries[i]
             y_v, y_prime = torch.tensor(y_v), torch.tensor(y_prime)
-            l1s.append((y_v - y_prime).norm(p=1,dim=1).mean().item())
-            l2s.append((y_v - y_prime).norm(p=2,dim=1).mean().item())
-            kls.append(F.kl_div((y_v+1e-6).log(), y_prime, reduction='batchmean').item())
-        l1_mean, l1_std = np.mean(l1s), np.std(l1s)
+            l1s.append((y_v - y_prime).norm(p=1,dim=1))
+            l2s.append((y_v - y_prime).norm(p=2,dim=1))
+            kls.append(F.kl_div((y_v+1e-6).log(), y_prime, reduction='none'))
+        l1s = torch.cat(l1s).cpu().numpy()
+        l2s = torch.cat(l2s).cpu().numpy()
+        kls = torch.cat(kls).cpu().numpy()
+        l1_max, l1_mean, l1_std = np.amax(l1s), np.mean(l1s), np.std(l1s)
         l2_mean, l2_std = np.mean(l2s), np.std(l2s)
         kl_mean, kl_std = np.mean(kls), np.std(kls)
 
-        return l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std
+        return l1_max, l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std
 
     def calc_distance(self,y, ytilde, ydist, device=torch.device('cuda')):
         assert y.shape == ytilde.shape, 'y = {}, ytile = {}'.format(y.shape, ytilde.shape)
@@ -186,11 +189,11 @@ class Blackbox(object):
                 with open(query_out_path, 'wb') as wf:
                     pickle.dump(self.queries, wf)
 
-                l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std = self.calc_query_distances(self.queries)
+                l1_max, l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std = self.calc_query_distances(self.queries)
 
                 # Logs
                 with open(self.log_path, 'a') as af:
-                    test_cols = [self.call_count, l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std]
+                    test_cols = [self.call_count, l1_max, l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std]
                     af.write('\t'.join([str(c) for c in test_cols]) + '\n')
 
         if return_origin:

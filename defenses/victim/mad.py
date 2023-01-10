@@ -556,19 +556,24 @@ class MAD(Blackbox):
         (optional)   argmax y_i = argmax y'_i for all i = 1,...,n
         """
         assert oracle_type in ['lp_extreme','lp_argmax'], 'Not a supported oracle type for batch input'
-        D = G.shape[1]
+
         n,K = y.shape
+        y_ori = y
         # print(G.shape)
         
         with torch.no_grad():
             # c = y^TGG^T
-            GG = G.matmul(G.transpose(0,1))# +1e-6*torch.eye(n*K).to(G)
+            if G is not None:
+                GG = G.matmul(G.transpose(0,1))# +1e-6*torch.eye(n*K).to(G)
+                c = (y.view(1,-1)).matmul(GG)
+                c = c.flatten().cpu().numpy()
+            else:
+                c = y.flatten().cpu().numpy()
             
-            c = (y.view(1,-1)).matmul(GG)
-            c = c.flatten().cpu().numpy()
             # c = np.concatenate([c,np.zeros(n*K)],axis=None) # dimension of c should be 2nk
         y = y.detach().cpu().numpy()
 
+        solver = PULP_CBC_CMD(msg=False)
         prob = LpProblem("MAD-Batch",LpMinimize)
         ys = []
         zs = []
@@ -610,13 +615,13 @@ class MAD(Blackbox):
                         prob += ys[i][max_idxs[i]]-ys[i][j]>=1e-4, "y'[{0},{1}]>=y'[{0},{2}]".format(i,max_idxs[i],j)
         
         
-        prob.solve()
+        prob.solve(solver=solver)
         y_star = np.zeros([n,K])
         min_val = torch.tensor(value(prob.objective))
         for i in range(n):
             for j in range(K):
                 y_star[i,j]=ys[i][j].varValue
-        y_star = torch.tensor(y_star).to(G)
+        y_star = torch.tensor(y_star).to(y_ori)
         
         return y_star,min_val
         
@@ -785,7 +790,7 @@ class MAD(Blackbox):
     def calc_delta(self, x, y):
         # Jacobians G
         if self.disable_jacobian or self.oracle in ['random', 'argmin']:
-            G = torch.eye(self.K*len(y)).to(self.device)
+            G = None
         else:
             # _start = time.time()
             G = MAD.compute_jacobian_nll(x, self.model_adv_proxy, device=self.device,max_grad_layer=self.max_grad_layer)
@@ -794,8 +799,8 @@ class MAD(Blackbox):
             # if np.random.random() < 0.05:
             #     print('mean = {:.6f}\tstd = {:.6f}'.format(np.mean(self.jacobian_times), np.std(self.jacobian_times)))
             # # print(_end - _start)
-        if self.D is None:
-            self.D = G.shape[1]
+            if self.D is None:
+                self.D = G.shape[1]
 
         if self.oracle not in ['lp_argmax','lp_extreme']:
             # y* via oracle
@@ -885,11 +890,11 @@ class MAD(Blackbox):
                 with open(query_out_path, 'wb') as wf:
                     pickle.dump(self.queries, wf)
 
-                l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std = self.calc_query_distances(self.queries)
+                l1_max, l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std = self.calc_query_distances(self.queries)
 
                 # Logs
                 with open(self.log_path, 'a') as af:
-                    test_cols = [self.call_count, l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std]
+                    test_cols = [self.call_count, l1_max, l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std]
                     af.write('\t'.join([str(c) for c in test_cols]) + '\n')
 
         # y_prime = torch.stack(y_prime)
@@ -900,12 +905,11 @@ class MAD(Blackbox):
             return y_prime
 
     def get_yprime(self,y):
-        n,K = y.shape
-        G = torch.eye(n*K).to(y)
-        if self.D is None:
-            self.D = G.shape[1]
-
         if self.oracle not in ['lp_argmax','lp_extreme']:
+            n,K = y.shape
+            G = torch.eye(n*K).to(y)
+            if self.D is None:
+                self.D = G.shape[1]
             # y* via oracle
             if self.oracle == 'random':
                 ystar, ystar_val = self.oracle_rand(G, y)
@@ -933,6 +937,6 @@ class MAD(Blackbox):
             
         else:# for lp approx
             # ystar,ystar_val = self.oracle_batch(G,y,self.epsilon,self.oracle,opt_method='revised simplex',tolerance=None)
-            yprime,_ = self.oracle_batch_pulp(G,y,self.epsilon,self.batch_constraint,self.oracle,tolerance=None)
+            yprime,_ = self.oracle_batch_pulp(None,y,self.epsilon,self.batch_constraint,self.oracle,tolerance=None)
 
         return yprime

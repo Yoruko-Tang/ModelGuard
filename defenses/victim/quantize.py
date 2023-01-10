@@ -3,6 +3,7 @@ import pickle
 import os.path as osp
 import torch
 from torch.utils.data import DataLoader
+import torch.nn.functional as F
 from copy import deepcopy
 # import sys
 # import os
@@ -12,10 +13,11 @@ from tqdm import tqdm
 
 from pulp import *
 
+
 # from defenses.victim import *
 
 class incremental_kmeans():
-    def __init__(self,blackbox,epsilon,ydist='l1',optim="approx",trainingset_name=None,frozen = True):
+    def __init__(self,blackbox,epsilon,ydist='l1',optim="approx",trainingset_name=None,frozen = False):
         self.blackbox = blackbox
         self.device = self.blackbox.device
         self.out_path = self.blackbox.out_path
@@ -91,9 +93,15 @@ class incremental_kmeans():
         self.call_count = 0
         if self.log_path is not None:
             self.quantize_log_path = self.log_path.replace('distance','quantize_distance')
+            self.centroids_log_path = self.log_path.replace('distance','centroid')
+            
             if not osp.exists(self.quantize_log_path):
                 with open(self.quantize_log_path, 'w') as wf:
-                    columns = ['call_count', 'l1_mean', 'l1_std', 'l2_mean', 'l2_std', 'kl_mean', 'kl_std']
+                    columns = ['call_count', 'l1_max', 'l1_mean', 'l1_std', 'l2_mean', 'l2_std', 'kl_mean', 'kl_std']
+                    wf.write('\t'.join(columns) + '\n')
+            if not osp.exists(self.centroids_log_path):
+                with open(self.centroids_log_path,'w') as wf:
+                    columns = ["call_count",]+ ["label %d"%i for i in range(self.num_classes)]
                     wf.write('\t'.join(columns) + '\n')
         else:
             self.quantize_log_path = None
@@ -102,92 +110,94 @@ class incremental_kmeans():
         self.centroids = deepcopy(centroids)
 
     def get_cluster_centroid(self,cluster_data):
-        if self.norm == 2:
-            # For l2 norm, we can get the centroid with the mean directly
-            centroid = torch.mean(cluster_data,dim=0,keepdim=True)
+        centroid = torch.mean(cluster_data,dim=0,keepdim=True)
+        # if self.norm == 2:
+        #     # For l2 norm, we can get the centroid with the mean directly
+        #     centroid = torch.mean(cluster_data,dim=0,keepdim=True)
         
-        elif self.norm == 1: 
-            # For l1 norm, we have two methods: approx and exact
-            data = cluster_data.detach().cpu().numpy()
-            max_idx = np.argmax(data[0,:])
-            n,K = data.shape
-            if self.optim == 'approx':
-                # solve the centroids with least l1 norm sum approximately
-                # if no simplex constraints, the median will be the optimal solution
-                median = np.median(data,axis=0) 
+        # elif self.norm == 1: 
+        #     # For l1 norm, we have two methods: approx and exact
+        #     data = cluster_data.detach().cpu().numpy()
+        #     max_idx = np.argmax(data[0,:])
+        #     n,K = data.shape
+        #     solver = PULP_CBC_CMD(msg=False)
+        #     if self.optim == 'approx':
+        #         # solve the centroids with least l1 norm sum approximately
+        #         # if no simplex constraints, the median will be the optimal solution
+        #         median = np.median(data,axis=0) 
                 
-                # project the median back to the simplex constraints with minimal l1 distance
-                prob = LpProblem("simplex projection",LpMinimize)
+        #         # project the median back to the simplex constraints with minimal l1 distance
+        #         prob = LpProblem("simplex projection",LpMinimize)
 
-                # build variable
-                c = LpVariable.dicts("centroid",list(range(K)),lowBound=0.0,upBound=1.0)
-                z = LpVariable.dicts("absolutevalue",list(range(K)),lowBound=0.0)
+        #         # build variable
+        #         c = LpVariable.dicts("centroid",list(range(K)),lowBound=0.0,upBound=1.0)
+        #         z = LpVariable.dicts("absolutevalue",list(range(K)),lowBound=0.0)
                 
-                # add objective function
-                # minimize l1 perturbation
-                prob += lpSum([z[i] for i in range(K)])
+        #         # add objective function
+        #         # minimize l1 perturbation
+        #         prob += lpSum([z[i] for i in range(K)])
 
-                # add constraints
-                for i in range(K):
-                    # slack variable constraint: z >= |c-median|
-                    prob += z[i]-c[i]>=-median[i], "z[{}]>=c[{}]-median[{}]".format(i,i,i)
-                    prob += z[i]+c[i]>=median[i], "z[{}]>=median[{}]-c[{}]".format(i,i,i)
+        #         # add constraints
+        #         for i in range(K):
+        #             # slack variable constraint: z >= |c-median|
+        #             prob += z[i]-c[i]>=-median[i], "z[{}]>=c[{}]-median[{}]".format(i,i,i)
+        #             prob += z[i]+c[i]>=median[i], "z[{}]>=median[{}]-c[{}]".format(i,i,i)
                     
-                    # argmax constraint
-                    if i != max_idx:
-                        prob += c[max_idx]-c[i]>=1e-4, "c[{}]>=c[{}]".format(max_idx,i)
+        #             # argmax constraint
+        #             if i != max_idx:
+        #                 prob += c[max_idx]-c[i]>=1e-4, "c[{}]>=c[{}]".format(max_idx,i)
                 
-                # simplex constraint
-                prob += lpSum([c[i] for i in range(K)])==1.0, "Simplex Constraint"
+        #         # simplex constraint
+        #         prob += lpSum([c[i] for i in range(K)])==1.0, "Simplex Constraint"
 
-                prob.solve()
-                centroid = np.zeros([1,K])
-                for i in range(K):
-                    centroid[0,i]=c[i].varValue
+        #         prob.solve(solver)
+        #         centroid = np.zeros([1,K])
+        #         for i in range(K):
+        #             centroid[0,i]=c[i].varValue
                 
-                centroid = torch.tensor(centroid).to(cluster_data)
+        #         centroid = torch.tensor(centroid).to(cluster_data)
                 
-            elif self.optim == 'exact':
-                # solve the controid with exactly the lowest l1 distance sum
-                print("[Warning]: Solving for exact l1 centroid, which may take a long time!")
+        #     elif self.optim == 'exact':
+        #         # solve the controid with exactly the lowest l1 distance sum
+        #         print("[Warning]: Solving for exact l1 centroid, which may take a long time!")
 
-                prob = LpProblem("L1 Centroid",LpMinimize)
+        #         prob = LpProblem("L1 Centroid",LpMinimize)
 
-                # build variable
-                c = LpVariable.dicts("centroid",list(range(K)),lowBound=0.0,upBound=1.0)
-                z = LpVariable.dicts("absolutevalue",list(range(n*K)),lowBound=0.0)
+        #         # build variable
+        #         c = LpVariable.dicts("centroid",list(range(K)),lowBound=0.0,upBound=1.0)
+        #         z = LpVariable.dicts("absolutevalue",list(range(n*K)),lowBound=0.0)
 
-                # add objective function
-                # minimize total l1 distance
-                prob += lpSum([z[i] for i in range(n*K)])
+        #         # add objective function
+        #         # minimize total l1 distance
+        #         prob += lpSum([z[i] for i in range(n*K)])
 
-                # add constraints
-                for i in range(n):
-                    for j in range(K):
-                        # slack variable constraints: z[i] >= |data[i]-c|
-                        prob += z[i*K+j]+c[j]>=data[i,j], "z[{0},{1}]>=data[{0},{1}]-c[{1}]".format(i,j)
-                        prob += z[i*K+j]-c[j]>=-data[i,j], "z[{0},{1}]>=c[{1}]-data[{0},{1}]".format(i,j)
+        #         # add constraints
+        #         for i in range(n):
+        #             for j in range(K):
+        #                 # slack variable constraints: z[i] >= |data[i]-c|
+        #                 prob += z[i*K+j]+c[j]>=data[i,j], "z[{0},{1}]>=data[{0},{1}]-c[{1}]".format(i,j)
+        #                 prob += z[i*K+j]-c[j]>=-data[i,j], "z[{0},{1}]>=c[{1}]-data[{0},{1}]".format(i,j)
 
-                # argmax constraint
-                for j in range(K):
-                    if j != max_idx:
-                        prob += c[max_idx]-c[j]>=1e-4, "c[{}]>=c[{}]".format(max_idx,j)
+        #         # argmax constraint
+        #         for j in range(K):
+        #             if j != max_idx:
+        #                 prob += c[max_idx]-c[j]>=1e-4, "c[{}]>=c[{}]".format(max_idx,j)
 
-                # simplex constraint
-                prob += lpSum([c[j] for j in range(K)])==1.0, "Simplex Constraint"
+        #         # simplex constraint
+        #         prob += lpSum([c[j] for j in range(K)])==1.0, "Simplex Constraint"
 
-                prob.solve()
-                centroid = np.zeros([1,K])
-                for j in range(K):
-                    centroid[0,j]=c[j].varValue
+        #         prob.solve(solver)
+        #         centroid = np.zeros([1,K])
+        #         for j in range(K):
+        #             centroid[0,j]=c[j].varValue
                 
-                centroid = torch.tensor(centroid).to(data)
+        #         centroid = torch.tensor(centroid).to(data)
             
-            else:
-                raise RuntimeError("Not recognized optimization method: "+self.optim)
+        #     else:
+        #         raise RuntimeError("Not recognized optimization method: "+self.optim)
 
-        else:
-            raise RuntimeError("Not supported ydist")
+        # else:
+        #     raise RuntimeError("Not supported ydist")
         return centroid
 
     def quantize(self,input,centroids):
@@ -205,7 +215,7 @@ class incremental_kmeans():
 
     
     def k_means(self,data,inital_centroids,tolerance=1e-3,max_iter=100):
-        centroids = deepcopy(inital_centroids)
+        centroids = inital_centroids
         for _ in range(max_iter):
             new_centroids = deepcopy(centroids)
             _,cent_idxs = self.quantize(data,centroids) # cluster
@@ -225,30 +235,117 @@ class incremental_kmeans():
         if len(data)==0:
             return []
         
-        print("Reclustering!")
+        #print("Reclustering!")
         
         centroids = self.get_cluster_centroid(data)
         
         while True:
             val_distance, _ = self.quantize(data,centroids)
-            # cents = centroids[cent_idxs]
-            # val_distance = torch.norm(data-cents,p=self.norm,dim=1)
-            # mean_dis = torch.mean(val_distance,dim=0)
+            mean_dis = torch.mean(val_distance,dim=0)
             max_dis,max_idx = torch.max(val_distance,dim=0)
 
-            if max_dis>self.epsilon: # keep adding new centroids until the constraint is satisfied
+            if mean_dis>self.epsilon: # keep adding new centroids until the constraint is satisfied
                 centroids = torch.cat([centroids,data[max_idx,:].reshape([1,-1])],dim=0)
                 centroids = self.k_means(data,centroids)
             else:
                 break
         return centroids
     
+    def calc_query_distances(self,queries):
+        return self.blackbox.calc_query_distances(queries)
 
-
-    def __call__(self,input,train=False,stat=True,return_origin=False):
+    def __call__(self,input,train=True,stat=True,return_origin=False):
+        # y_prime,y_v = self.blackbox(input,stat=False,return_origin=True) # go through the blackbox first
         
-        y_prime,y_v = self.blackbox(input,stat=False,return_origin=True) # go through the blackbox first
+        
+        # max_idx = torch.argmax(y_prime,dim=1)
+        # cents = torch.zeros_like(y_prime)
+        # if train and not self.frozen:
+        #     if len(self.labels)<self.num_classes:
+        #         self.labels = self.labels + [[] for _ in range(self.num_classes-len(self.labels))]
+        #     if len(self.centroids)<self.num_classes:
+        #         self.centroids = self.centroids + [[] for _ in range(self.num_classes-len(self.centroids))]
+            
+        #     for n in range(self.num_classes):
+        #         if torch.sum(max_idx==n)>0:
+        #             # put the new y_prime into the dataset by their top-1 labels
+        #             if len(self.labels[n]) == 0:
+        #                 self.labels[n] = y_prime[max_idx==n,:]
+        #             else:
+        #                 self.labels[n] = torch.cat([self.labels[n],y_prime[max_idx==n,:]],dim=0)
+        #             # initializa the centroids for this label if there is no centroids for this label currently
+        #             if len(self.centroids[n])==0 and len(self.labels[n])>0:
+        #                 self.centroids[n] = self.cluster(self.labels[n])
 
+                    
+        #             # Get Quantizer and check if utility constraints are satisfied
+        #             _,cent_idxs = self.quantize(y_prime[max_idx==n,:],self.centroids[n])
+        #             cents[max_idx==n,:] = self.centroids[n][cent_idxs]
+        #             val_distance = torch.norm(y_prime[max_idx==n,:]-cents[max_idx==n,:],p=self.norm,dim=1)
+        #             max_dis = torch.max(val_distance)
+        #             if max_dis>self.epsilon: # re-cluster with new data if the utility constraints are not satisfied
+        #                 self.centroids[n] = self.cluster(self.labels[n])
+        #                 _,cent_idxs = self.quantize(y_prime[max_idx==n,:],self.centroids[n])
+        #                 cents[max_idx==n,:] = self.centroids[n][cent_idxs]
+        
+        # else: # freeze the centroids and only quantize
+        #     for n in range(self.num_classes):
+        #         if torch.sum(max_idx==n)>0:
+        #             # Get Quantizer and check if utility constraints are satisfied
+        #             _,cent_idxs = self.quantize(y_prime[max_idx==n,:],self.centroids[n])
+        #             cents[max_idx==n,:] = self.centroids[n][cent_idxs]
+
+        
+        # # Sanity checks
+       
+        # # Constraints are met
+        # if not self.blackbox.is_in_simplex(cents):
+        #     print('[WARNING] Simplex contraint failed (i = {})'.format(self.call_count))
+        
+        # if stat and self.log_path is not None:
+        #     self.call_count += len(y_v)
+        #     self.queries.append((y_v.cpu().detach().numpy(), cents.cpu().detach().numpy()))
+        #     self.quantize_queries.append((y_prime.cpu().detach().numpy(), cents.cpu().detach().numpy()))
+        #     if self.call_count % 1000 == 0:
+        #         # Dump queries
+        #         query_out_path = osp.join(self.out_path, 'queries.pickle')
+        #         quantize_query_out_path = osp.join(self.out_path, 'quantize_queries.pickle')
+        #         with open(query_out_path, 'wb') as wf:
+        #             pickle.dump(self.queries, wf)
+                
+        #         with open(quantize_query_out_path,'wb') as wf:
+        #             pickle.dump(self.quantize_queries, wf)
+
+        #         l1_max, l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std = self.calc_query_distances(self.queries)
+                
+        #         # Logs
+        #         with open(self.log_path, 'a') as af:
+        #             test_cols = [self.call_count, l1_max, l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std]
+        #             af.write('\t'.join([str(c) for c in test_cols]) + '\n')
+
+                
+        #         l1_max, l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std = self.calc_query_distances(self.quantize_queries)
+        #         with open(self.quantize_log_path, 'a') as af:
+        #             test_cols = [self.call_count, l1_max, l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std]
+        #             af.write('\t'.join([str(c) for c in test_cols]) + '\n')
+
+        #         with open(self.centroids_log_path, 'a') as af:
+        #             test_cols = [self.call_count,]+[len(self.centroids[i]) for i in range(self.num_classes)]
+        #             af.write('\t'.join([str(c) for c in test_cols]) + '\n')                    
+
+
+        # if return_origin:
+        #     return cents,y_v
+        # else:
+        #     return cents
+
+        with torch.no_grad():
+            x = input.to(self.device)
+            z_v = self.blackbox.model(x)  # Victim's predicted logits
+            y_v = F.softmax(z_v, dim=1).detach()
+        
+        # quantize first
+        y_prime = y_v
         max_idx = torch.argmax(y_prime,dim=1)
         cents = torch.zeros_like(y_prime)
         if train and not self.frozen:
@@ -286,16 +383,17 @@ class incremental_kmeans():
                     _,cent_idxs = self.quantize(y_prime[max_idx==n,:],self.centroids[n])
                     cents[max_idx==n,:] = self.centroids[n][cent_idxs]
 
+        y_final = self.blackbox.get_yprime(cents) # defense-unaware attack next
         # Sanity checks
        
         # Constraints are met
-        if not self.blackbox.is_in_simplex(cents):
+        if not self.blackbox.is_in_simplex(y_final):
             print('[WARNING] Simplex contraint failed (i = {})'.format(self.call_count))
         
         if stat and self.log_path is not None:
             self.call_count += len(y_v)
-            self.queries.append((y_v.cpu().detach().numpy(), cents.cpu().detach().numpy()))
-            self.quantize_queries.append((y_prime.cpu().detach().numpy(), cents.cpu().detach().numpy()))
+            self.queries.append((y_v.cpu().detach().numpy(), y_final.cpu().detach().numpy()))
+            self.quantize_queries.append((y_v.cpu().detach().numpy(), cents.cpu().detach().numpy()))
             if self.call_count % 1000 == 0:
                 # Dump queries
                 query_out_path = osp.join(self.out_path, 'queries.pickle')
@@ -306,24 +404,28 @@ class incremental_kmeans():
                 with open(quantize_query_out_path,'wb') as wf:
                     pickle.dump(self.quantize_queries, wf)
 
-                l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std = self.blackbox.calc_query_distances(self.queries)
+                l1_max, l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std = self.calc_query_distances(self.queries)
                 
                 # Logs
                 with open(self.log_path, 'a') as af:
-                    test_cols = [self.call_count, l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std]
+                    test_cols = [self.call_count, l1_max, l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std]
                     af.write('\t'.join([str(c) for c in test_cols]) + '\n')
 
                 
-                l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std = self.blackbox.calc_query_distances(self.quantize_queries)
+                l1_max, l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std = self.calc_query_distances(self.quantize_queries)
                 with open(self.quantize_log_path, 'a') as af:
-                    test_cols = [self.call_count, l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std]
+                    test_cols = [self.call_count, l1_max, l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std]
                     af.write('\t'.join([str(c) for c in test_cols]) + '\n')
+
+                with open(self.centroids_log_path, 'a') as af:
+                    test_cols = [self.call_count,]+[len(self.centroids[i]) for i in range(self.num_classes)]
+                    af.write('\t'.join([str(c) for c in test_cols]) + '\n')                    
 
 
         if return_origin:
-            return cents,y_v
+            return y_final,y_v
         else:
-            return cents
+            return y_final
 
 
     def get_yprime(self,y):

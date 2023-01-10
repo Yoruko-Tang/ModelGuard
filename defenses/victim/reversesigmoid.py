@@ -75,11 +75,11 @@ class ReverseSigmoid(Blackbox):
                 with open(query_out_path, 'wb') as wf:
                     pickle.dump(self.queries, wf)
 
-                l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std = self.calc_query_distances(self.queries)
+                l1_max, l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std = self.calc_query_distances(self.queries)
 
                 # Logs
                 with open(self.log_path, 'a') as af:
-                    test_cols = [self.call_count, l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std]
+                    test_cols = [self.call_count, l1_max, l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std]
                     af.write('\t'.join([str(c) for c in test_cols]) + '\n')
 
         if return_origin:

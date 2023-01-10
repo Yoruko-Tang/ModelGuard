@@ -53,63 +53,64 @@ class MLD(Blackbox):
                      \sum_i z_i<=\epsilon
         (optional)   argmax y_i = argmax y'_i for all i = 1,...,n
         """
-        with suppress_stdout():
-            n,K = y.shape
-            y_ori = y.clone()
-            
-            with torch.no_grad():
-                # c = log(y)
-                c = torch.log(y+1e-6).flatten().cpu().numpy()# avoid too small y_i such that -log(y) is too large
-                # c = np.concatenate([c,np.zeros(n*K)],axis=None) # dimension of c should be 2nk
-            y = y.detach().cpu().numpy()
+        
+        n,K = y.shape
+        y_ori = y.clone()
+        
+        with torch.no_grad():
+            # c = log(y)
+            c = torch.log(y+1e-6).flatten().cpu().numpy()# avoid too small y_i such that -log(y) is too large
+            # c = np.concatenate([c,np.zeros(n*K)],axis=None) # dimension of c should be 2nk
+        y = y.detach().cpu().numpy()
 
-            prob = LpProblem("MLD",LpMinimize)
-            ys = []
-            zs = []
-            # build variable 
-            for i in range(n):
-                y_prime = LpVariable.dicts("y_%d"%i,list(range(K)),lowBound=0.0,upBound=1.0)
-                ys.append(y_prime)
-                z = LpVariable.dicts("z_%d"%i,list(range(K)),lowBound=0.0)
-                zs.append(z)
+        prob = LpProblem("MLD",LpMinimize)
+        solver = PULP_CBC_CMD(msg=False)
+        ys = []
+        zs = []
+        # build variable 
+        for i in range(n):
+            y_prime = LpVariable.dicts("y_%d"%i,list(range(K)),lowBound=0.0,upBound=1.0)
+            ys.append(y_prime)
+            z = LpVariable.dicts("z_%d"%i,list(range(K)),lowBound=0.0)
+            zs.append(z)
 
-            # add objective function
-            prob += lpSum([c[j]*ys[j//K][j%K] for j in range(len(c))])
-            # add constraints
-            for i in range(n):
-                # simplex constraints
-                if tolerance is not None and tolerance >0:
-                    prob += lpSum([ys[i][j] for j in range(K)])>=1.0-tolerance, "Simplex Constraint %d lower bound"%i
-                    prob += lpSum([ys[i][j] for j in range(K)])<=1.0+tolerance, "Simplex Constraint %d upper bound"%i
-                else:
-                    prob += lpSum([ys[i][j] for j in range(K)])==1.0, "Simplex Constraint %d"%i
-                for j in range(K):
-                    # z>=|y-y'|
-                    prob += zs[i][j]+ys[i][j]>=y[i,j], "z[{0},{1}]>=y[{0},{1}]-y'[{0},{1}]".format(i,j)
-                    prob += zs[i][j]-ys[i][j]>=-y[i,j], "z[{0},{1}]>=y'[{0},{1}]-y[{0},{1}]".format(i,j)
-            
-            # perturbation constraints
-            if batch_constraint:
-                prob += lpSum([zs[j//K][j%K] for j in range(n*K)])<=epsilon, "Perturbation Bound"
+        # add objective function
+        prob += lpSum([c[j]*ys[j//K][j%K] for j in range(len(c))])
+        # add constraints
+        for i in range(n):
+            # simplex constraints
+            if tolerance is not None and tolerance >0:
+                prob += lpSum([ys[i][j] for j in range(K)])>=1.0-tolerance, "Simplex Constraint %d lower bound"%i
+                prob += lpSum([ys[i][j] for j in range(K)])<=1.0+tolerance, "Simplex Constraint %d upper bound"%i
             else:
-                for i in range(n):
-                    prob += lpSum([zs[i][j] for j in range(K)])<=epsilon, "Perturbation Bound %d"%i
+                prob += lpSum([ys[i][j] for j in range(K)])==1.0, "Simplex Constraint %d"%i
+            for j in range(K):
+                # z>=|y-y'|
+                prob += zs[i][j]+ys[i][j]>=y[i,j], "z[{0},{1}]>=y[{0},{1}]-y'[{0},{1}]".format(i,j)
+                prob += zs[i][j]-ys[i][j]>=-y[i,j], "z[{0},{1}]>=y'[{0},{1}]-y[{0},{1}]".format(i,j)
+        
+        # perturbation constraints
+        if batch_constraint:
+            prob += lpSum([zs[j//K][j%K] for j in range(n*K)])<=epsilon, "Perturbation Bound"
+        else:
+            for i in range(n):
+                prob += lpSum([zs[i][j] for j in range(K)])<=epsilon, "Perturbation Bound %d"%i
 
-            
-            max_idxs = np.argmax(y,axis=1)
-            for i in range(n):
-                for j in range(K):
-                    if j != max_idxs[i]:
-                        prob += ys[i][max_idxs[i]]-ys[i][j]>=1e-4, "y'[{0},{1}]>=y'[{0},{2}]".format(i,max_idxs[i],j)
-            
-            
-            prob.solve()
-            y_star = np.zeros([n,K])
-            min_val = torch.tensor(value(prob.objective))
-            for i in range(n):
-                for j in range(K):
-                    y_star[i,j]=ys[i][j].varValue
-            y_star = torch.tensor(y_star).to(y_ori)
+        
+        max_idxs = np.argmax(y,axis=1)
+        for i in range(n):
+            for j in range(K):
+                if j != max_idxs[i]:
+                    prob += ys[i][max_idxs[i]]-ys[i][j]>=1e-4, "y'[{0},{1}]>=y'[{0},{2}]".format(i,max_idxs[i],j)
+        
+        
+        prob.solve(solver)
+        y_star = np.zeros([n,K])
+        min_val = torch.tensor(value(prob.objective))
+        for i in range(n):
+            for j in range(K):
+                y_star[i,j]=ys[i][j].varValue
+        y_star = torch.tensor(y_star).to(y_ori)
         
         return y_star,min_val
         
@@ -157,11 +158,11 @@ class MLD(Blackbox):
                 with open(query_out_path, 'wb') as wf:
                     pickle.dump(self.queries, wf)
 
-                l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std = self.calc_query_distances(self.queries)
+                l1_max, l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std = self.calc_query_distances(self.queries)
 
                 # Logs
                 with open(self.log_path, 'a') as af:
-                    test_cols = [self.call_count, l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std]
+                    test_cols = [self.call_count, l1_max, l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std]
                     af.write('\t'.join([str(c) for c in test_cols]) + '\n')
 
         if return_origin:

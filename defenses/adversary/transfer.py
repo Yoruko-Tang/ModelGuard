@@ -90,7 +90,7 @@ class RandomAdversaryIters(object):
             log_path = self.blackbox.log_path.replace('distance','gtdistance')
             if not osp.exists(log_path):
                 with open(log_path, 'w') as wf:
-                    columns = ['transferset size', 'l1_mean', 'l1_std', 'l2_mean', 'l2_std', 'kl_mean', 'kl_std']
+                    columns = ['transferset size', 'l1_max', 'l1_mean', 'l1_std', 'l2_mean', 'l2_std', 'kl_mean', 'kl_std']
                     wf.write('\t'.join(columns) + '\n')
 
         print('Constructing transferset using: # unique images = {}, # queries = {}'.format(len(self.idx_set), niters))
@@ -165,9 +165,9 @@ class RandomAdversaryIters(object):
                 Y = self.label_recover(Y,pbar) # recover the whole transfer set together to reduce cpu-gpu convert
             if stat:
                 Y_true = torch.cat(Y_true,dim=0)
-                l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std = self.blackbox.calc_query_distances([[Y_true,Y],])
+                l1_max, l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std = self.blackbox.calc_query_distances([[Y_true,Y],])
                 with open(log_path, 'a') as af:
-                    test_cols = [num_queries, l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std]
+                    test_cols = [num_queries, l1_max, l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std]
                     af.write('\t'.join([str(c) for c in test_cols]) + '\n')
         
         for i in range(len(IMG)):

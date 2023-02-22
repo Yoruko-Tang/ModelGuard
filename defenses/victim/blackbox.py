@@ -127,7 +127,7 @@ class Blackbox(object):
             y_v, y_prime = torch.tensor(y_v), torch.tensor(y_prime)
             l1s.append((y_v - y_prime).norm(p=1,dim=1))
             l2s.append((y_v - y_prime).norm(p=2,dim=1))
-            kls.append(F.kl_div((y_v+1e-6).log(), y_prime, reduction='none'))
+            kls.append(torch.sum(F.kl_div((y_v+1e-6).log(), y_prime, reduction='none'),dim=1))
         l1s = torch.cat(l1s).cpu().numpy()
         l2s = torch.cat(l2s).cpu().numpy()
         kls = torch.cat(kls).cpu().numpy()

@@ -17,7 +17,7 @@ from pulp import *
 # from defenses.victim import *
 
 class incremental_kmeans():
-    def __init__(self,blackbox,epsilon,ydist='l1',optim="approx",trainingset_name=None,frozen = False):
+    def __init__(self,blackbox,epsilon,ydist='l1',optim="approx",trainingset_name=None,frozen = False,ordered_quantization=True,kmean=False,buffer_size=None):
         self.blackbox = blackbox
         self.device = self.blackbox.device
         self.out_path = self.blackbox.out_path
@@ -34,6 +34,9 @@ class incremental_kmeans():
             raise RuntimeError("Not supported distance metrics for y distance!")
         self.optim=optim
         self.frozen = bool(frozen)
+        self.ordered = bool(ordered_quantization)
+        self.kmean = bool(kmean)
+        self.label_buffer = buffer_size//self.num_classes if buffer_size is not None else np.inf
         self.labels = []
         self.centroids = []
 
@@ -54,7 +57,7 @@ class incremental_kmeans():
             modelfamily = datasets.dataset_to_modelfamily[trainingset_name]
             transform_type = 'test'
             transform = datasets.modelfamily_to_transforms[modelfamily][transform_type]
-            trainingset = datasets.__dict__[trainingset_name](train=True, transform=transform)
+            trainingset = datasets.__dict__[trainingset_name](train=False, transform=transform)
             dataloader = DataLoader(trainingset,batch_size=32,num_workers=4,shuffle=False)
             print("training quantizer with training set "+trainingset_name)
             self.labels = [[] for _ in range(self.num_classes)]
@@ -64,6 +67,8 @@ class incremental_kmeans():
                     self.labels[l].append(y_prime[n,:].reshape([1,-1]))
             for l in range(self.num_classes):
                 self.labels[l] = torch.cat(self.labels[l],dim=0)
+                self.labels[l] = self.labels[l][max(0,len(self.labels[l])-self.label_buffer):]
+                
             with open(label_path,'wb') as f:
                 pickle.dump([label.cpu() for label in self.labels],f)
         
@@ -213,22 +218,61 @@ class incremental_kmeans():
         distance,cent_idxs = torch.min(distance_matrix,dim=1)
         return distance,cent_idxs
 
-    
+    def ordered_quantize(self,prediction,centroids,incremental=True):
+        assert len(prediction.shape)==1, "only support single input"
+        
+        distances = torch.norm(centroids-prediction,p=self.norm,dim=1)
+        valid_cent = torch.arange(len(centroids))[distances<=self.epsilon]
+        if len(valid_cent)==0:
+            # all centroids are far away from the new input, add new centroid
+            if incremental:
+                new_centroid = self.get_new_centroid(prediction,centroids)
+                centroids = torch.cat([centroids,new_centroid],dim=0)
+                distance = torch.norm(new_centroid-prediction,p=self.norm,dim=1)[0]
+                #print(distances,distance)
+                cent_idxs = len(centroids)-1
+            else:# return the closest centroid
+                distance,cent_idxs = torch.min(distances,dim=0)
+        else:
+            # use the first centroid that satisfy the utility constraint to avoid returned result change for the same prediction
+            cent_idxs = valid_cent[0]
+            distance = distances[cent_idxs]
+        return distance,cent_idxs,centroids
+
+    def get_new_centroid(self,outlier,centroids,opt=False):
+        """
+        given existing centroids and an outlier point, generate a new centroid far away from exiting centroids but contain the outlier
+        """
+        if opt:
+            raise NotImplementedError("Not implemented!")
+        else:
+            new_centroid = outlier
+        
+        return new_centroid.reshape([1,-1])
+
     def k_means(self,data,inital_centroids,tolerance=1e-3,max_iter=100):
         centroids = inital_centroids
         for _ in range(max_iter):
             new_centroids = deepcopy(centroids)
-            _,cent_idxs = self.quantize(data,centroids) # cluster
+            quantize_distances,cent_idxs = self.quantize(data,centroids) # cluster
             for c in range(len(centroids)):
-                new_centroids[c] = self.get_cluster_centroid(data[cent_idxs==c]) # mean/median
+                if torch.sum(cent_idxs==c)>0: # skip empty clusters and do not update them
+                    new_centroids[c] = self.get_cluster_centroid(data[cent_idxs==c]) # mean/median
             max_move = torch.max(torch.norm(new_centroids-centroids,p=2,dim=1))
-            centroids = new_centroids
             if max_move<tolerance:
                 break
+            else:
+                centroids = new_centroids
         
-        return centroids
+        # delete empty clusters
+        nonempty_cluster = list(set(cent_idxs.cpu().numpy().tolist()))
+        centroids = centroids[nonempty_cluster,:]
+        quantize_distances,cent_idxs = self.quantize(data,centroids)
+            
+        
+        return quantize_distances,centroids
 
-    def cluster(self,data):
+    def cluster(self,data,init_cluster=None):
         """
         perform cluster with data and return centroids
         """
@@ -236,17 +280,21 @@ class incremental_kmeans():
             return []
         
         #print("Reclustering!")
-        
-        centroids = self.get_cluster_centroid(data)
+        if init_cluster is None:
+            # use mean of all data as initialization
+            centroids = self.get_cluster_centroid(data)
+        else:
+            # use the old centroids as the initialization to accelerate the clustering
+            centroids = init_cluster
         
         while True:
-            val_distance, _ = self.quantize(data,centroids)
-            mean_dis = torch.mean(val_distance,dim=0)
+            val_distance,centroids = self.k_means(data,centroids)
+            #val_distance, _ = self.quantize(data,centroids)
+            #mean_dis = torch.mean(val_distance,dim=0)
             max_dis,max_idx = torch.max(val_distance,dim=0)
 
-            if mean_dis>self.epsilon: # keep adding new centroids until the constraint is satisfied
+            if max_dis>self.epsilon: # keep adding new centroids until the constraint is satisfied
                 centroids = torch.cat([centroids,data[max_idx,:].reshape([1,-1])],dim=0)
-                centroids = self.k_means(data,centroids)
             else:
                 break
         return centroids
@@ -255,89 +303,6 @@ class incremental_kmeans():
         return self.blackbox.calc_query_distances(queries)
 
     def __call__(self,input,train=True,stat=True,return_origin=False):
-        # y_prime,y_v = self.blackbox(input,stat=False,return_origin=True) # go through the blackbox first
-        
-        
-        # max_idx = torch.argmax(y_prime,dim=1)
-        # cents = torch.zeros_like(y_prime)
-        # if train and not self.frozen:
-        #     if len(self.labels)<self.num_classes:
-        #         self.labels = self.labels + [[] for _ in range(self.num_classes-len(self.labels))]
-        #     if len(self.centroids)<self.num_classes:
-        #         self.centroids = self.centroids + [[] for _ in range(self.num_classes-len(self.centroids))]
-            
-        #     for n in range(self.num_classes):
-        #         if torch.sum(max_idx==n)>0:
-        #             # put the new y_prime into the dataset by their top-1 labels
-        #             if len(self.labels[n]) == 0:
-        #                 self.labels[n] = y_prime[max_idx==n,:]
-        #             else:
-        #                 self.labels[n] = torch.cat([self.labels[n],y_prime[max_idx==n,:]],dim=0)
-        #             # initializa the centroids for this label if there is no centroids for this label currently
-        #             if len(self.centroids[n])==0 and len(self.labels[n])>0:
-        #                 self.centroids[n] = self.cluster(self.labels[n])
-
-                    
-        #             # Get Quantizer and check if utility constraints are satisfied
-        #             _,cent_idxs = self.quantize(y_prime[max_idx==n,:],self.centroids[n])
-        #             cents[max_idx==n,:] = self.centroids[n][cent_idxs]
-        #             val_distance = torch.norm(y_prime[max_idx==n,:]-cents[max_idx==n,:],p=self.norm,dim=1)
-        #             max_dis = torch.max(val_distance)
-        #             if max_dis>self.epsilon: # re-cluster with new data if the utility constraints are not satisfied
-        #                 self.centroids[n] = self.cluster(self.labels[n])
-        #                 _,cent_idxs = self.quantize(y_prime[max_idx==n,:],self.centroids[n])
-        #                 cents[max_idx==n,:] = self.centroids[n][cent_idxs]
-        
-        # else: # freeze the centroids and only quantize
-        #     for n in range(self.num_classes):
-        #         if torch.sum(max_idx==n)>0:
-        #             # Get Quantizer and check if utility constraints are satisfied
-        #             _,cent_idxs = self.quantize(y_prime[max_idx==n,:],self.centroids[n])
-        #             cents[max_idx==n,:] = self.centroids[n][cent_idxs]
-
-        
-        # # Sanity checks
-       
-        # # Constraints are met
-        # if not self.blackbox.is_in_simplex(cents):
-        #     print('[WARNING] Simplex contraint failed (i = {})'.format(self.call_count))
-        
-        # if stat and self.log_path is not None:
-        #     self.call_count += len(y_v)
-        #     self.queries.append((y_v.cpu().detach().numpy(), cents.cpu().detach().numpy()))
-        #     self.quantize_queries.append((y_prime.cpu().detach().numpy(), cents.cpu().detach().numpy()))
-        #     if self.call_count % 1000 == 0:
-        #         # Dump queries
-        #         query_out_path = osp.join(self.out_path, 'queries.pickle')
-        #         quantize_query_out_path = osp.join(self.out_path, 'quantize_queries.pickle')
-        #         with open(query_out_path, 'wb') as wf:
-        #             pickle.dump(self.queries, wf)
-                
-        #         with open(quantize_query_out_path,'wb') as wf:
-        #             pickle.dump(self.quantize_queries, wf)
-
-        #         l1_max, l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std = self.calc_query_distances(self.queries)
-                
-        #         # Logs
-        #         with open(self.log_path, 'a') as af:
-        #             test_cols = [self.call_count, l1_max, l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std]
-        #             af.write('\t'.join([str(c) for c in test_cols]) + '\n')
-
-                
-        #         l1_max, l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std = self.calc_query_distances(self.quantize_queries)
-        #         with open(self.quantize_log_path, 'a') as af:
-        #             test_cols = [self.call_count, l1_max, l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std]
-        #             af.write('\t'.join([str(c) for c in test_cols]) + '\n')
-
-        #         with open(self.centroids_log_path, 'a') as af:
-        #             test_cols = [self.call_count,]+[len(self.centroids[i]) for i in range(self.num_classes)]
-        #             af.write('\t'.join([str(c) for c in test_cols]) + '\n')                    
-
-
-        # if return_origin:
-        #     return cents,y_v
-        # else:
-        #     return cents
 
         with torch.no_grad():
             x = input.to(self.device)
@@ -345,43 +310,68 @@ class incremental_kmeans():
             y_v = F.softmax(z_v, dim=1).detach()
         
         # quantize first
-        y_prime = y_v
-        max_idx = torch.argmax(y_prime,dim=1)
-        cents = torch.zeros_like(y_prime)
-        if train and not self.frozen:
-            if len(self.labels)<self.num_classes:
-                self.labels = self.labels + [[] for _ in range(self.num_classes-len(self.labels))]
-            if len(self.centroids)<self.num_classes:
-                self.centroids = self.centroids + [[] for _ in range(self.num_classes-len(self.centroids))]
-            
-            for n in range(self.num_classes):
-                if torch.sum(max_idx==n)>0:
-                    # put the new y_prime into the dataset by their top-1 labels
-                    if len(self.labels[n]) == 0:
-                        self.labels[n] = y_prime[max_idx==n,:]
-                    else:
-                        self.labels[n] = torch.cat([self.labels[n],y_prime[max_idx==n,:]],dim=0)
-                    # initializa the centroids for this label if there is no centroids for this label currently
-                    if len(self.centroids[n])==0 and len(self.labels[n])>0:
-                        self.centroids[n] = self.cluster(self.labels[n])
-
-                    
-                    # Get Quantizer and check if utility constraints are satisfied
-                    _,cent_idxs = self.quantize(y_prime[max_idx==n,:],self.centroids[n])
-                    cents[max_idx==n,:] = self.centroids[n][cent_idxs]
-                    val_distance = torch.norm(y_prime[max_idx==n,:]-cents[max_idx==n,:],p=self.norm,dim=1)
-                    max_dis = torch.max(val_distance)
-                    if max_dis>self.epsilon: # re-cluster with new data if the utility constraints are not satisfied
-                        self.centroids[n] = self.cluster(self.labels[n])
-                        _,cent_idxs = self.quantize(y_prime[max_idx==n,:],self.centroids[n])
-                        cents[max_idx==n,:] = self.centroids[n][cent_idxs]
+        cents = torch.zeros_like(y_v)
         
-        else: # freeze the centroids and only quantize
-            for n in range(self.num_classes):
-                if torch.sum(max_idx==n)>0:
+        if len(self.labels)<self.num_classes:
+            self.labels = self.labels + [[] for _ in range(self.num_classes-len(self.labels))]
+        if len(self.centroids)<self.num_classes:
+            self.centroids = self.centroids + [[] for _ in range(self.num_classes-len(self.centroids))]
+        
+        
+            
+        if train and not self.frozen:
+            for i in range(len(y_v)):# quantize one by one
+                y_prime = y_v[i,:]
+                max_idx = torch.argmax(y_prime).item()
+                
+                if not self.ordered: # maintain a group of predictions for online clustering
+                    if len(self.labels[max_idx]) == 0:
+                        self.labels[max_idx] = y_prime.reshape([1,-1])
+                        
+                    else:
+                        pert,id = torch.min(torch.norm(self.labels[max_idx]-y_prime,p=2,dim=1),dim=0)
+                        if pert<1e-3:
+                            # do not add replicated labels into the buffer
+                            y_prime = self.labels[max_idx][id]
+                        else:
+                            # put the new y_prime into the dataset by their top-1 labels
+                            self.labels[max_idx] = torch.cat([self.labels[max_idx],y_prime.reshape([1,-1])],dim=0)
+                            self.labels[max_idx] = self.labels[max_idx][max(0,len(self.labels[max_idx])-self.label_buffer):]
+                    
+                    #self.labels[max_idx] = self.labels[n][:min(len(self.labels[n]),self.label_buffer)]# only maintain the maximum size of buffer
+                # initializa the centroids for this label if there is no centroids for this label currently
+                if len(self.centroids[max_idx])==0:
+                    self.centroids[max_idx] = y_prime.reshape([1,-1])
+                    cents[i,:] = y_prime
+
+                else:
                     # Get Quantizer and check if utility constraints are satisfied
-                    _,cent_idxs = self.quantize(y_prime[max_idx==n,:],self.centroids[n])
-                    cents[max_idx==n,:] = self.centroids[n][cent_idxs]
+                    if self.ordered:
+                        val_distance,cent_idxs,self.centroids[max_idx]=self.ordered_quantize(y_prime,self.centroids[max_idx])
+                        assert val_distance.item()<=self.epsilon, "Utility check failure! Distance: {:.4f}; Epsilon: {:.4f}".format(val_distance.item(),self.epsilon)
+                        cents[i,:] = self.centroids[max_idx][cent_idxs]
+                    else:
+                        val_distance,cent_idxs = self.quantize(y_prime,self.centroids[max_idx])
+                        if val_distance[0].item()>self.epsilon: # re-cluster with new data if the utility constraints are not satisfied
+                            if self.kmean:# use kmeans to find new centroids
+                                self.centroids[max_idx] = self.cluster(self.labels[max_idx],init_cluster=self.centroids[max_idx])
+                                _,cent_idxs = self.quantize(y_prime,self.centroids[max_idx])
+                                cents[i,:] = self.centroids[max_idx][cent_idxs]
+                            else:# directly use new input as new centroid
+                                self.centroids[max_idx] = torch.cat([self.centroids[max_idx],y_prime.reshape([1,-1])],dim=0)
+                                cents[i,:] = y_prime
+                        else:
+                            cents[i,:] = self.centroids[max_idx][cent_idxs]
+
+        else: # freeze the centroids and only quantize
+            for i in range(len(y_v)):# quantize one by one
+                y_prime = y_v[i,:]
+                max_idx = torch.argmax(y_prime).item()
+                if self.ordered:
+                    val_distance,cent_idxs,_=self.ordered_quantize(y_prime,self.centroids[max_idx],incremental=False)
+                else:
+                    val_distance,cent_idxs = self.quantize(y_prime,self.centroids[max_idx])
+                cents[i,:] = self.centroids[max_idx][cent_idxs]
 
         y_final = self.blackbox.get_yprime(cents) # defense-unaware attack next
         # Sanity checks
@@ -429,16 +419,19 @@ class incremental_kmeans():
 
 
     def get_yprime(self,y):
-        y = self.blackbox.get_yprime(y)
-        max_idx = torch.argmax(y,dim=1)
-
+        # static quantization (frozen=1), used by attacker offline
         cents = torch.zeros_like(y)
-        for n in range(self.num_classes):
-            if torch.sum(max_idx==n)>0:
-                # Get Quantizer and check if utility constraints are satisfied
-                _,cent_idxs = self.quantize(y[max_idx==n,:],self.centroids[n])
-                cents[max_idx==n,:] = self.centroids[n][cent_idxs]
-        return cents
+        for i in range(len(y)):# quantize one by one
+            y_prime = y[i,:]
+            max_idx = torch.argmax(y_prime).item()
+            if self.ordered:
+                _,cent_idxs,_=self.ordered_quantize(y_prime,self.centroids[max_idx],incremental=False)
+            else:
+                _,cent_idxs = self.quantize(y_prime,self.centroids[max_idx])
+            cents[i,:] = self.centroids[max_idx][cent_idxs]
+
+        y_final = self.blackbox.get_yprime(cents) # defense-unaware attack next
+        return y_final
 
     def print_centroid_info(self):
         for l in range(len(self.centroids)):

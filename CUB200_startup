@@ -36,11 +36,10 @@ policy=random
 defense_aware=1
 recover_table_size=10000000
 recover_norm=1
-recover_tolerance=1.0
+recover_tolerance=0.01
 recover_proc=10
 policy_suffix="_da${defense_aware}"
-
-dir_mle_path="models/final_bb_dist/${p_v}-${f_v}/random_da0-${queryset}-B${budget}/none/quantize0.0/transferset.pickle"
+recover_params="table_size:${recover_table_size};recover_norm:${recover_norm};tolerance:${recover_tolerance};recover_proc:${recover_proc}"
 
 
 ## jbda/jbself/jbtop
@@ -57,18 +56,18 @@ semi_dataset=${queryset}
 
 ### Defense strategy
 ## Quantization
-quantize=0
-quantize_epsilon=0.0
+quantize=1
+quantize_epsilon=1.0
 optim=approx
 ydist=l1
 
 # get centroids from query
 frozen=0
-quantize_args="epsilon:${quantize_epsilon};ydist:${ydist};optim:${optim};frozen:${frozen}"
+quantize_args="epsilon:${quantize_epsilon};ydist:${ydist};optim:${optim};frozen:${frozen};ordered_quantization:1"
 
 # get centroids with trainning set
 frozen=1
-quantize_args="epsilon:${quantize_epsilon};ydist:${ydist};optim:${optim};trainingset_name:${p_v};frozen:${frozen}"
+quantize_args="epsilon:${quantize_epsilon};ydist:${ydist};optim:${optim};trainingset_name:${p_v};frozen:${frozen};buffer_size:20000"
 
 ## None
 strat=none
@@ -169,7 +168,7 @@ python defenses/victim/train.py ${p_v} ${f_v} -o ${vic_dir} -b 64 -d ${dev_id} -
 python defenses/victim/eval.py ${vic_dir} ${strat} ${defense_args} --out_dir ${out_dir} --batch_size ${batch_size} -d ${dev_id}
 
 # (adversary) generate transfer dataset (only when policy=random)
-python defenses/adversary/transfer.py ${policy} ${vic_dir} ${strat} ${defense_args} --out_dir ${out_dir} --batch_size ${batch_size} -d ${dev_id} --queryset ${queryset} --budget ${budget} --defense_aware ${defense_aware} --quantize ${quantize} --quantize_args ${quantize_args} --recover_table_size ${recover_table_size} --recover_norm ${recover_norm} --recover_tolerance ${recover_tolerance} --recover_proc ${recover_proc} --dir_mle_path ${dir_mle_path}
+python defenses/adversary/transfer.py ${policy} ${vic_dir} ${strat} ${defense_args} --out_dir ${out_dir} --batch_size ${batch_size} -d ${dev_id} --queryset ${queryset} --budget ${budget} --quantize ${quantize} --quantize_args ${quantize_args} --defense_aware ${defense_aware} --recover_args ${recover_params}
 
 # (adversary) train kickoffnet and evaluate
 python defenses/adversary/train.py ${out_dir} ${f_v} ${p_v} --budgets 50000 -e ${epochs} -b ${training_batch_size} --lr ${lr} --lr_step ${lr_step} --lr_gamma ${lr_gamma} -d ${dev_id} -w 4 --pretrained ${pretrained} --vic_dir ${vic_dir} --semitrainweight ${semi_train_weight} --semidataset ${semi_dataset} 

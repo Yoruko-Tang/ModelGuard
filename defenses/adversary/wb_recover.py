@@ -52,42 +52,53 @@ class Recover_NN(nn.Module):
 
 class Table_Recover():
     max_sample_size=5000000
-    def __init__(self,blackbox,table_size=1000000,batch_size=1,recover_mean=False,recover_norm=2,tolerance=1e-4,recover_nn=False,dir=True,alpha=None,estimation_set=None,num_proc=1):
+    def __init__(self,blackbox,table_size=1000000,batch_size=1,epsilon=None,perturb_norm=1,recover_mean=True,recover_norm=2,tolerance=1e-4,recover_nn=False,alpha=None,num_proc=1):
         self.table_size = table_size
         self.blackbox = blackbox
         self.num_classes = self.blackbox.num_classes
         self.device = self.blackbox.device
         self.batch_size = batch_size
+        self.epsilon=epsilon
+        self.perturb_norm = perturb_norm
         self.recover_mean=recover_mean
         self.recover_norm = recover_norm
         self.tolerance = tolerance
         self.recover_nn = recover_nn
+        self.alpha = alpha
+        self.num_proc = num_proc
         self.true_label_sample,self.perturbed_label_sample = None, None
         
-        table_path = osp.join(self.blackbox.out_path, 'recover_table.pickle')
-        if osp.exists(table_path):
-            with open(table_path,'rb') as wf:
-                self.true_label_sample,self.perturbed_label_sample = pickle.load(wf)
-                print("Loaded Existing Table with table length {}!".format(len(self.true_label_sample)))
-                if len(self.true_label_sample)>=table_size:
-                    self.true_label_sample,self.perturbed_label_sample = self.true_label_sample[:table_size,:],self.perturbed_label_sample[:table_size,:]
-                    table_size = 0
-                else:
-                    table_size = table_size-len(self.true_label_sample)
-                    print("Supplementing existing table with {} samples...".format(table_size))
+        
+
+    def generate_lookup_table(self,load_path=None,estimation_set=None):
+        table_size = self.table_size
+        if load_path is not None:
+            if osp.exists(load_path):
+                with open(load_path,'rb') as wf:
+                    self.true_label_sample,self.perturbed_label_sample = pickle.load(wf)
+                    print("Loaded Existing Table with table length {}!".format(len(self.true_label_sample)))
+                    if len(self.true_label_sample)>=table_size:
+                        self.true_label_sample,self.perturbed_label_sample = self.true_label_sample[:table_size,:],self.perturbed_label_sample[:table_size,:]
+                        table_size = 0
+                    else:
+                        table_size = table_size-len(self.true_label_sample)
+                        print("Supplementing existing table with {} samples...".format(table_size))
                                
         if table_size>0:
             print("Building Recover Table! Total Samples Number={}!".format(table_size))
-            if dir:
-                true_label_sample = self.get_dirichlet_samples(alpha,table_size,estimation_set)
-            else:
-                true_label_sample = self.get_uniform_samples(table_size)
+            
+            true_label_sample = self.get_dirichlet_samples(self.alpha,table_size,estimation_set)
 
-            if num_proc == 1:
+
+            if self.num_proc == 1:
                 perturbed_label_sample = self.get_perturbed_label_sample(self.blackbox,true_label_sample,self.batch_size)
             else:
-                perturbed_label_sample = self.get_perturbed_label_sample_parallel(self.blackbox,true_label_sample,num_proc)
+                perturbed_label_sample = self.get_perturbed_label_sample_parallel(self.blackbox,true_label_sample,self.num_proc)
             
+            if self.epsilon is not None:
+                pert_norm = torch.norm(true_label_sample-perturbed_label_sample,p=self.perturb_norm,dim=1)
+                true_label_sample = true_label_sample[pert_norm<=self.epsilon]
+                perturbed_label_sample = perturbed_label_sample[pert_norm<=self.epsilon]
             if self.true_label_sample is None or self.perturbed_label_sample is None:
                 self.true_label_sample,self.perturbed_label_sample = true_label_sample,perturbed_label_sample
             else:
@@ -96,7 +107,7 @@ class Table_Recover():
  
             print("Recover Table Completed!")
         
-            with open(table_path, 'wb') as wf:
+            with open(osp.join(self.blackbox.out_path, 'recover_table.pickle'), 'wb') as wf:
                 pickle.dump([self.true_label_sample,self.perturbed_label_sample], wf)
         try:
             self.true_label_sample,self.perturbed_label_sample = self.true_label_sample.to(self.device),self.perturbed_label_sample.to(self.device)
@@ -105,7 +116,7 @@ class Table_Recover():
             # self.device = torch.device('cpu')
             self.true_label_sample,self.perturbed_label_sample = self.true_label_sample.cpu(),self.perturbed_label_sample.cpu()
 
-        if not recover_nn:
+        if not self.recover_nn:
             self.true_top1 = torch.argmax(self.true_label_sample,dim=1).to(self.device)
             self.log_path = osp.join(self.blackbox.out_path, 'recover_distance{}.log.tsv'.format(self.blackbox.log_prefix))
             self.logger = csv.writer(open(self.log_path,'w'),delimiter='\t')
@@ -121,44 +132,24 @@ class Table_Recover():
             self.logger.writerow(['Epoch','Loss', 'L2 Distance'])
             self.nn = self.train_recover_nn(self.nn,self.perturbed_label_sample,self.true_label_sample,epoch=100,batch_size=50000,lr=1e-3)
 
-
     def estimate_dir(self,estimation_set):
-        print("Estimating Dirichlet Distribution via Lables in '{}'".format(estimation_set))
-        with open(estimation_set,'rb') as wf:
-            estimation_data = pickle.load(wf)
-            estimation_label = torch.cat([torch.tensor(estimation_data[i][1]).reshape([1,-1]) for i in range(len(estimation_data))],dim=0)
+        if isinstance(estimation_set,str) and osp.exists(estimation_set): # use labels in a transfer set
+            print("Estimating Dirichlet Distribution via Lables in '{}'".format(estimation_set))
+            with open(estimation_set,'rb') as wf:
+                estimation_data = pickle.load(wf)
+                estimation_label = torch.cat([torch.tensor(estimation_data[i][1]).reshape([1,-1]) for i in range(len(estimation_data))],dim=0)
+        elif isinstance(estimation_set,torch.Tensor): # use labels in a tensor
+            estimation_label = estimation_set.clone().detach()
+        else:
+            raise RuntimeError("Not a valid estimation set form (must be in a path or a tensor)")
         return estimation_label.to(self.device)
-        #     estimation_dataloader = DataLoader(TensorDataset(estimation_label),batch_size=batch_size if batch_size is not None else len(estimation_data),shuffle=True)
-        # alpha = torch.ones(estimation_label.size(1)).to(self.device)
-        # alpha.requires_grad_()
-        # Dir = Dirichlet(alpha)
-        # optimizer = optim.Adam([alpha,],lr = lr)
-        # for e in range(max_epoch):
-        #     for _,label in estimation_dataloader:
-        #         old_alpha = alpha.clone().detach()
-        #         label = label.to(self.device)
-        #         optimizer.zero_grad()
-        #         log_prob = Dir.log_prob(label)
-        #         loss = -torch.mean(log_prob)
-
-        #         loss.backward()
-        #         optimizer.step()
-
-        #         dist = torch.norm(alpha.data-old_alpha,p=2).item()
-        #         if dist<epsilon:
-        #             break
-            
-        #     print("Epoch:{}\tNeg Log Prob Loss:{:.4f}".format(e,loss.item()))
-        #     if dist<epsilon:
-        #         break
-        # return alpha.detach_()
 
     def get_dirichlet_samples(self,alpha=None,table_size=1000000,estimation_set=None):
         """
         Generate samples from dirichlet distribution
         """
         sample_list = []
-        if estimation_set is not None and osp.exists(estimation_set):
+        if estimation_set is not None:
             alpha = self.estimate_dir(estimation_set)*numclasses_to_alpha[self.num_classes]
         elif alpha is None:# preset alphas
             alpha = [k*torch.ones(self.num_classes).to(self.device)/self.num_classes for k in [1.0,]]

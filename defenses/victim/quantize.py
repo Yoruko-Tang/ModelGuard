@@ -4,6 +4,7 @@ import os.path as osp
 import torch
 from torch.utils.data import DataLoader
 import torch.nn.functional as F
+from torch.distributions import Dirichlet
 from copy import deepcopy
 # import sys
 # import os
@@ -244,7 +245,18 @@ class incremental_kmeans():
         given existing centroids and an outlier point, generate a new centroid far away from exiting centroids but contain the outlier
         """
         if opt:
-            raise NotImplementedError("Not implemented!")
+            # randomly sample some points near the outlier and select the one with the largest total distance from existing centroids
+            s = self.num_classes*(1-torch.sum(outlier**2))/self.epsilon**2-1
+            Dist = Dirichlet(outlier.reshape([-1,])) # use concentration s to make the std of deviation equal to epsilon/sqrt(n)
+            samples = Dist.sample([1000,])
+            max_total_dist = 0.0
+            max_idxs = -1
+            for i in range(len(samples)):
+                total_dist = torch.sum(torch.norm(centroids-samples[i],p=self.norm,dim=1))
+                if total_dist>max_total_dist:
+                    max_total_dist = total_dist
+                    max_idxs = i
+            new_centroid = samples[max_idxs]
         else:
             new_centroid = outlier
         

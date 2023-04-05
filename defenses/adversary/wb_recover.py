@@ -150,7 +150,8 @@ class Table_Recover():
         """
         sample_list = []
         if estimation_set is not None:
-            alpha = self.estimate_dir(estimation_set)*numclasses_to_alpha[self.num_classes]
+            concentration = self.num_classes*4
+            alpha = self.estimate_dir(estimation_set)*concentration
         elif alpha is None:# preset alphas
             alpha = [k*torch.ones(self.num_classes).to(self.device)/self.num_classes for k in [1.0,]]
         s = table_size//len(alpha)

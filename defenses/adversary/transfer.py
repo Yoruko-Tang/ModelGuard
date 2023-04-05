@@ -264,7 +264,7 @@ def main():
     if params['defense_aware']:
         recover_kwargs = knockoff_utils.parse_defense_kwargs(params['recover_args'])
         print('=> Initializing Label Recovery with arguments: {}'.format(recover_kwargs))
-        recover = Table_Recover(blackbox,batch_size=params['batch_size'],recover_mean=True,**recover_kwargs)
+        recover = Table_Recover(quantize_blackbox if quantize_blackbox is not None else blackbox,batch_size=params['batch_size'],recover_mean=True,**recover_kwargs)
     else:
         recover = None
 

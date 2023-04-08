@@ -38,13 +38,14 @@ from wb_recover import Table_Recover
 
 
 class RandomAdversaryIters(object):
-    def __init__(self, blackbox, label_recover, queryset, batch_size=8):
+    def __init__(self, blackbox, label_recover, queryset, batch_size=8, hard_label=False):
         self.blackbox = blackbox
         self.label_recover = label_recover
         self.queryset = queryset
 
         self.n_queryset = len(self.queryset)
         self.batch_size = batch_size
+        self.hard_label = hard_label
         self.idx_set = set()
         self.budget_idxs = set()
 
@@ -100,61 +101,60 @@ class RandomAdversaryIters(object):
         if queries_per_image > 1:
             print('=> Obtaining mean posteriors over {} predictions per image'.format(queries_per_image))
 
-        num_queries = 0
-        IMG,Y,Y_true = [],[],[]
-        with tqdm(total=niters) as pbar:
-            for t, B in enumerate(range(start_B, end_B, self.batch_size)):
+        y_t_list = []
+        IMG,Y_true = [],[]
 
-                idxs = np.random.choice(list(self.idx_set), replace=False,
-                                        size=min(self.batch_size, niters - num_queries))
-                self.idx_set = self.idx_set - set(idxs)
-                
-                num_queries += len(idxs)*queries_per_image
+        for i in range(queries_per_image):
+            num_queries = 0
+            Y_t = []
+            with tqdm(total=niters) as pbar:
+                for B in range(start_B, end_B, self.batch_size):
 
-                if len(self.idx_set) == 0:
-                    # print('=> Query set exhausted. Now repeating input examples.')
-                    self.idx_set = set(self.all_idxs[:budget])
+                    # idxs = np.random.choice(list(self.idx_set), replace=False,
+                    #                         size=min(self.batch_size, niters - num_queries))
+                    idxs = np.arange(B,min(B+self.batch_size,niters)) # fix the sampling order
+                    self.idx_set = self.idx_set - set(idxs)
+                    
+                    num_queries += len(idxs)*queries_per_image
 
-                x_t = torch.stack([self.queryset[i][0] for i in idxs]).to(self.blackbox.device)
+                    if len(self.idx_set) == 0:
+                        # print('=> Query set exhausted. Now repeating input examples.')
+                        self.idx_set = set(self.all_idxs[:budget])
 
-                y_t_list = []
-                
-                for i in range(queries_per_image):
+                    x_t = torch.stack([self.queryset[i][0] for i in idxs]).to(self.blackbox.device)
+                    
                     t_start = time.time()
                     if i == 0:
-                        _y_t, y_t_true = self.blackbox(x_t,return_origin=True)
+                        y_t, y_t_true = self.blackbox(x_t,return_origin=True)
+                        t_end = time.time()
+                        self.call_times.append(t_end - t_start)
+                        if hasattr(self.queryset, 'samples'):
+                            # Any DatasetFolder (or subclass) has this attribute
+                            # Saving image paths are space-efficient
+                            img_t = [self.queryset.samples[i][0] for i in idxs]  # Image paths
+                            
+                        else:
+                            # Otherwise, store the image itself
+                            # But, we need to store the non-transformed version
+                            img_t = [self.queryset.data[i] for i in idxs]
+                            if isinstance(self.queryset.data[0], torch.Tensor):
+                                img_t = [x.numpy() for x in img_t]
+                            
+                        IMG = IMG + img_t
+                        Y_true.append(y_t_true)
                     else:
-                        _y_t = self.blackbox(x_t)
-                    
-                    t_end = time.time()
-                    self.call_times.append(t_end - t_start)
-                    y_t_list.append(_y_t)
-
-                y_t = torch.stack(y_t_list).mean(dim=0)    # Mean over queries
-                Y.append(y_t)
-                Y_true.append(y_t_true)
-
-
-                if hasattr(self.queryset, 'samples'):
-                    # Any DatasetFolder (or subclass) has this attribute
-                    # Saving image paths are space-efficient
-                    img_t = [self.queryset.samples[i][0] for i in idxs]  # Image paths
-                    
-                else:
-                    # Otherwise, store the image itself
-                    # But, we need to store the non-transformed version
-                    img_t = [self.queryset.data[i] for i in idxs]
-                    if isinstance(self.queryset.data[0], torch.Tensor):
-                        img_t = [x.numpy() for x in img_t]
-                    
-                IMG = IMG + img_t
-                pbar.update(x_t.size(0))
-        
-        Y = torch.cat(Y,dim=0)
+                        y_t = self.blackbox(x_t)
+                        t_end = time.time()
+                        self.call_times.append(t_end - t_start)
+  
+                    Y_t.append(y_t)
+                    pbar.update(x_t.size(0))
+            y_t_list.append(torch.cat(Y_t,dim=0))
+        Y = torch.stack(y_t_list).mean(dim=0)# Mean over queries
         Y_true = torch.cat(Y_true,dim=0)
         
         if self.label_recover is not None:
-            print("Start to recover the clean labels!")
+            print("=> Start to recover the clean labels!")
             self.label_recover.generate_lookup_table(estimation_set = Y_true)
             with tqdm(total=len(Y)) as pbar:
                 Y = self.label_recover(Y,pbar) # recover the whole transfer set together to reduce cpu-gpu convert
@@ -163,7 +163,10 @@ class RandomAdversaryIters(object):
                 with open(log_path, 'a') as af:
                     test_cols = [num_queries, l1_max, l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std]
                     af.write('\t'.join([str(c) for c in test_cols]) + '\n')
-        
+        if self.hard_label:# use hard label instead of soft label
+            topk_vals, indices = torch.topk(Y, 1)
+            Y = torch.zeros_like(Y)
+            Y = Y.scatter(1, indices, torch.ones_like(topk_vals))
         for i in range(len(IMG)):
             img_i = IMG[i].squeeze() if isinstance(IMG[i], np.ndarray) else IMG[i]
             self.transferset.append((img_i, Y[i].cpu().squeeze()))
@@ -184,6 +187,7 @@ def main():
 
     parser.add_argument('--defense_aware',type=int,help="Whether using defense-aware attack",default = 0)
     parser.add_argument('--recover_args',type=str,help='Recover arguments in format "k1:v1,k2:v2,..."')
+    parser.add_argument('--hardlabel',type=int,help="Whether only use hard label for extraction",default= 0)
 
     parser.add_argument('--quantize',type=int,help="Whether using quantized defense",default=0)
     parser.add_argument('--quantize_args',type=str,help='Quantization arguments in format "k1:v1,k2:v2,..."')
@@ -264,7 +268,9 @@ def main():
     if params['defense_aware']:
         recover_kwargs = knockoff_utils.parse_defense_kwargs(params['recover_args'])
         print('=> Initializing Label Recovery with arguments: {}'.format(recover_kwargs))
-        recover = Table_Recover(quantize_blackbox if quantize_blackbox is not None else blackbox,batch_size=params['batch_size'],recover_mean=True,**recover_kwargs)
+        recover = Table_Recover(quantize_blackbox if quantize_blackbox is not None else blackbox,batch_size=params['batch_size'],
+                                epsilon = quantize_kwargs['epsilon'] if (params['quantize'] and quantize_kwargs['epsilon'] > 0.0) else None,
+                                recover_mean=True,**recover_kwargs)
     else:
         recover = None
 
@@ -275,7 +281,7 @@ def main():
     batch_size = params['batch_size']
     nworkers = params['nworkers']
     if params['policy'] == 'random':
-        adversary = RandomAdversaryIters(quantize_blackbox if quantize_blackbox is not None else blackbox, recover, queryset, batch_size=batch_size)
+        adversary = RandomAdversaryIters(quantize_blackbox if quantize_blackbox is not None else blackbox, recover, queryset, batch_size=batch_size,hard_label=params['hardlabel'])
     elif params['policy'] == 'adaptive':
         raise NotImplementedError()
     else:

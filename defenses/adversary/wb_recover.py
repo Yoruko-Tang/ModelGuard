@@ -52,7 +52,7 @@ class Recover_NN(nn.Module):
 
 class Table_Recover():
     max_sample_size=5000000
-    def __init__(self,blackbox,table_size=1000000,batch_size=1,epsilon=None,perturb_norm=1,recover_mean=True,recover_norm=2,tolerance=1e-4,recover_nn=False,alpha=None,num_proc=1):
+    def __init__(self,blackbox,table_size=1000000,batch_size=1,epsilon=None,perturb_norm=1,recover_mean=True,recover_norm=2,tolerance=1e-4,recover_nn=False,alpha=None,recover_proc=1):
         self.table_size = table_size
         self.blackbox = blackbox
         self.num_classes = self.blackbox.num_classes
@@ -65,7 +65,7 @@ class Table_Recover():
         self.tolerance = tolerance
         self.recover_nn = recover_nn
         self.alpha = alpha
-        self.num_proc = num_proc
+        self.num_proc = recover_proc
         self.true_label_sample,self.perturbed_label_sample = None, None
         
         
@@ -201,6 +201,8 @@ class Table_Recover():
 
     def get_perturbed_label_sample_parallel(self,blackbox,true_label_sample,num_proc=10):
         print("Generating recover table with %d processes..."%num_proc)
+        if hasattr(blackbox,'cpu'):
+            blackbox.cpu()
         with Manager() as manager:
             proc_data = np.array_split(true_label_sample,num_proc)
             count = manager.Value('i',0)
@@ -234,6 +236,8 @@ class Table_Recover():
             perturbed_label_sample = list(perturbed_label_output)
         res = torch.cat(perturbed_label_sample,dim=0)
         print("Ended multiprocessing with total number of samples = %d"%len(res))
+        if hasattr(blackbox,'to_blackbox_device'):
+            blackbox.to_blackbox_device()
         return res
 
     def train_recover_nn(self,model,pert_label,true_label,epoch=30,batch_size=50000,lr=1e-2):

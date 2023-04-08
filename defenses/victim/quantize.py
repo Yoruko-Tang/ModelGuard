@@ -18,7 +18,7 @@ from pulp import *
 # from defenses.victim import *
 
 class incremental_kmeans():
-    def __init__(self,blackbox,epsilon,ydist='l1',optim="approx",trainingset_name=None,frozen = False,ordered_quantization=True,kmean=False,buffer_size=None):
+    def __init__(self,blackbox,epsilon,ydist='l1',optim=False,trainingset_name=None,frozen = False,ordered_quantization=True,kmean=False,buffer_size=None):
         self.blackbox = blackbox
         self.device = self.blackbox.device
         self.out_path = self.blackbox.out_path
@@ -33,7 +33,7 @@ class incremental_kmeans():
             self.norm = 2
         else:
             raise RuntimeError("Not supported distance metrics for y distance!")
-        self.optim=optim
+        self.optim=bool(optim)
         self.frozen = bool(frozen)
         self.ordered = bool(ordered_quantization)
         self.kmean = bool(kmean)
@@ -220,14 +220,17 @@ class incremental_kmeans():
         return distance,cent_idxs
 
     def ordered_quantize(self,prediction,centroids,incremental=True):
-        assert len(prediction.shape)==1, "only support single input"
-        
+        if prediction.dim()>1:
+            prediction = prediction.reshape([-1,])
+        assert len(prediction) == self.num_classes, "only support single input"
+        if len(centroids)==0 and not incremental:
+            return None
         distances = torch.norm(centroids-prediction,p=self.norm,dim=1)
         valid_cent = torch.arange(len(centroids))[distances<=self.epsilon]
         if len(valid_cent)==0:
             # all centroids are far away from the new input, add new centroid
             if incremental:
-                new_centroid = self.get_new_centroid(prediction,centroids)
+                new_centroid = self.get_new_centroid(prediction,centroids,opt=self.optim)
                 centroids = torch.cat([centroids,new_centroid],dim=0)
                 distance = torch.norm(new_centroid-prediction,p=self.norm,dim=1)[0]
                 #print(distances,distance)
@@ -246,17 +249,23 @@ class incremental_kmeans():
         """
         if opt:
             # randomly sample some points near the outlier and select the one with the largest total distance from existing centroids
-            s = self.num_classes*(1-torch.sum(outlier**2))/self.epsilon**2-1
-            Dist = Dirichlet(outlier.reshape([-1,])) # use concentration s to make the std of deviation equal to epsilon/sqrt(n)
+            s = self.num_classes*10
+            Dist = Dirichlet(outlier.reshape([-1,])*s) # use concentration s to make the std of deviation approximately epsilon/sqrt(n)
             samples = Dist.sample([1000,])
-            max_total_dist = 0.0
-            max_idxs = -1
-            for i in range(len(samples)):
-                total_dist = torch.sum(torch.norm(centroids-samples[i],p=self.norm,dim=1))
-                if total_dist>max_total_dist:
-                    max_total_dist = total_dist
-                    max_idxs = i
-            new_centroid = samples[max_idxs]
+            samples = samples[torch.norm(samples-outlier,p=self.norm,dim=1)<=self.epsilon] # discard all samples outside the constraint
+            max_class = torch.argmax(samples,dim=1)
+            samples = samples[max_class==torch.argmax(outlier)]# preserve the top-1 labels
+            if len(samples)>0:
+                max_total_dist = 0.0
+                max_idxs = -1
+                for i in range(len(samples)):
+                    total_dist = torch.sum(torch.norm(centroids-samples[i],p=self.norm,dim=1))
+                    if total_dist>max_total_dist:
+                        max_total_dist = total_dist
+                        max_idxs = i
+                new_centroid = samples[max_idxs]
+            else:# no close centroids sampled
+                new_centroid = outlier
         else:
             new_centroid = outlier
         
@@ -379,11 +388,15 @@ class incremental_kmeans():
             for i in range(len(y_v)):# quantize one by one
                 y_prime = y_v[i,:]
                 max_idx = torch.argmax(y_prime).item()
-                if self.ordered:
-                    val_distance,cent_idxs,_=self.ordered_quantize(y_prime,self.centroids[max_idx],incremental=False)
+                if len(self.centroids[max_idx])==0: # no centroids of this class, which is not a normal case
+                    print("[Warning]: Lack of centroids for class %d while the quantization is frozen, return the original label!"%max_idx)
+                    cents[i,:] = y_prime
                 else:
-                    val_distance,cent_idxs = self.quantize(y_prime,self.centroids[max_idx])
-                cents[i,:] = self.centroids[max_idx][cent_idxs]
+                    if self.ordered:
+                        val_distance,cent_idxs,_=self.ordered_quantize(y_prime,self.centroids[max_idx],incremental=False)
+                    else:
+                        val_distance,cent_idxs = self.quantize(y_prime,self.centroids[max_idx])
+                    cents[i,:] = self.centroids[max_idx][cent_idxs]
 
         y_final = self.blackbox.get_yprime(cents) # defense-unaware attack next
         # Sanity checks
@@ -429,18 +442,37 @@ class incremental_kmeans():
         else:
             return y_final
 
+    def cpu(self):
+        # move all tensors to cpu
+        self.device = 'cpu'
+        for i in range(len(self.centroids)):
+            if len(self.centroids[i])>0:
+                self.centroids[i] = self.centroids[i].cpu()
+
+    def to_blackbox_device(self):
+        self.device = self.blackbox.device
+        for i in range(len(self.centroids)):
+            if len(self.centroids[i])>0:
+                self.centroids[i] = self.centroids[i].to(self.device)
 
     def get_yprime(self,y):
         # static quantization (frozen=1), used by attacker offline
+        # everything should be done on cpu for multiprocessing compability
+        
+        
         cents = torch.zeros_like(y)
         for i in range(len(y)):# quantize one by one
             y_prime = y[i,:]
             max_idx = torch.argmax(y_prime).item()
-            if self.ordered:
-                _,cent_idxs,_=self.ordered_quantize(y_prime,self.centroids[max_idx],incremental=False)
+            if len(self.centroids[max_idx])==0: # no centroids of this class, which is not a normal case
+                print("[Warning]: Lack of centroids for class %d while the quantization is frozen, return the original label!"%max_idx)
+                cents[i,:] = y_prime
             else:
-                _,cent_idxs = self.quantize(y_prime,self.centroids[max_idx])
-            cents[i,:] = self.centroids[max_idx][cent_idxs]
+                if self.ordered:
+                    _,cent_idxs,_=self.ordered_quantize(y_prime,self.centroids[max_idx],incremental=False)
+                else:
+                    _,cent_idxs = self.quantize(y_prime,self.centroids[max_idx])
+                cents[i,:] = self.centroids[max_idx][cent_idxs]
 
         y_final = self.blackbox.get_yprime(cents) # defense-unaware attack next
         return y_final

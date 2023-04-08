@@ -111,7 +111,7 @@ class Blackbox(object):
 
         # Rounding of decimals
         if rounding is not None and rounding > 0:
-            y_t_probs = torch.Tensor(np.round(y_t_probs.numpy(), decimals=rounding))
+            y_t_probs = torch.Tensor(np.round(y_t_probs.cpu().numpy(), decimals=rounding)).to(y_t_probs)
 
         return y_t_probs
 

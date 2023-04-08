@@ -3,7 +3,7 @@ python defenses/victim/train.py CUBS200 resnet50 --out_path models/victim/CUBS20
 
 ################################ CUB200 ################################
 ### If you have multiple GPUs on the machine, use this to select the specific GPU
-dev_id=3
+dev_id=2
 ### p_v = victim model dataset
 p_v=CUBS200
 ### f_v = architecture of victim model
@@ -23,42 +23,42 @@ lr_gamma=0.5
 epochs=30
 training_batch_size=32
 
-### attack policy
-## pretrained model
+### pretrained model
 # use imagenet pretrained
 pretrained=imagenet
 
 # use optimal pretrained
 pretrained=${vic_dir}
 
+### attack policy
 ## random
 policy=random
-defense_aware=1
+hardlabel=0
+defense_aware=0
 recover_table_size=10000000
 recover_norm=1
 recover_tolerance=0.01
 recover_proc=10
-policy_suffix="_da${defense_aware}"
+policy_suffix="_da${defense_aware}_hard${hardlabel}"
 recover_params="table_size:${recover_table_size};recover_norm:${recover_norm};tolerance:${recover_tolerance};recover_proc:${recover_proc}"
 
 
 ## jbda/jbself/jbtop
 policy=jbtop3
 seedsize=500
-epsilon=0.1
+jb_epsilon=0.1
 T=8
-defense_aware=1
-policy_suffix="_da${defense_aware}_ss${seedsize}_eps${epsilon}"
+policy_suffix="ss${seedsize}_eps${jb_epsilon}"
 
 ## semisupervised setting
-semi_train_weight=0.0
+semi_train_weight=1.0
 semi_dataset=${queryset}
 
 ### Defense strategy
 ## Quantization
-quantize=1
-quantize_epsilon=1.0
-optim=approx
+quantize=0
+quantize_epsilon=0.0
+optim=0
 ydist=l1
 
 # get centroids from query
@@ -145,17 +145,24 @@ out_dir=models/final_bb_dist/${p_v}-${f_v}/${policy}${policy_suffix}-${queryset}
 defense_args="epsilon_z:${eps};dist_z:${zdist};out_path:${out_dir}"
 
 ## topk
-# Output path to attacker's model
 strat=topk
 topk=1
 rounding=0
+# Output path to attacker's model
 out_dir=models/final_bb_dist/${p_v}-${f_v}/${policy}${policy_suffix}-${queryset}-B${budget}/top${topk}-rounding${rounding}
 defense_args="topk:${topk};rounding:${rounding};out_path:${out_dir}"
+
+## rounding
+strat=rounding
+rounding=1
+# Output path to attacker's model
+out_dir=models/final_bb_dist/${p_v}-${f_v}/${policy}${policy_suffix}-${queryset}-B${budget}/rounding${rounding}
+defense_args="rounding:${rounding};out_path:${out_dir}"
 
 ## reverse sigmoid
 # Output path to attacker's model
 strat=reverse_sigmoid
-beta=0.4
+beta=0.01
 gamma=0.2
 out_dir=models/final_bb_dist/${p_v}-${f_v}/${policy}${policy_suffix}-${queryset}-B${budget}/revsig/beta${beta}-gamma${gamma}-quantize${quantize_epsilon}
 defense_args="beta:${beta};gamma:${gamma};out_path:${out_dir}"
@@ -168,10 +175,10 @@ python defenses/victim/train.py ${p_v} ${f_v} -o ${vic_dir} -b 64 -d ${dev_id} -
 python defenses/victim/eval.py ${vic_dir} ${strat} ${defense_args} --out_dir ${out_dir} --batch_size ${batch_size} -d ${dev_id}
 
 # (adversary) generate transfer dataset (only when policy=random)
-python defenses/adversary/transfer.py ${policy} ${vic_dir} ${strat} ${defense_args} --out_dir ${out_dir} --batch_size ${batch_size} -d ${dev_id} --queryset ${queryset} --budget ${budget} --quantize ${quantize} --quantize_args ${quantize_args} --defense_aware ${defense_aware} --recover_args ${recover_params}
+python defenses/adversary/transfer.py ${policy} ${vic_dir} ${strat} ${defense_args} --out_dir ${out_dir} --batch_size ${batch_size} -d ${dev_id} --queryset ${queryset} --budget ${budget} --quantize ${quantize} --quantize_args ${quantize_args} --defense_aware ${defense_aware} --recover_args ${recover_params} --hardlabel ${hardlabel}
 
 # (adversary) train kickoffnet and evaluate
 python defenses/adversary/train.py ${out_dir} ${f_v} ${p_v} --budgets 50000 -e ${epochs} -b ${training_batch_size} --lr ${lr} --lr_step ${lr_step} --lr_gamma ${lr_gamma} -d ${dev_id} -w 4 --pretrained ${pretrained} --vic_dir ${vic_dir} --semitrainweight ${semi_train_weight} --semidataset ${semi_dataset} 
 
 # (adversary) use jbda/jbda-topk as attack policy
-python defenses/adversary/jacobian.py ${policy} ${vic_dir} ${strat} ${defense_args} --model_adv ${f_v} --pretrained imagenet --out_dir ${out_dir} --testset ${p_v} --batch_size 128 -d ${dev_id} --queryset ${queryset} --budget ${budget} --seedsize ${seedsize} --epsilon ${epsilon} --T ${T} --train_epochs 20
+python defenses/adversary/jacobian.py ${policy} ${vic_dir} ${strat} ${defense_args} --model_adv ${f_v} --pretrained imagenet --out_dir ${out_dir} --testset ${p_v} --batch_size 128 -d ${dev_id} --queryset ${queryset} --budget ${budget} --seedsize ${seedsize} --epsilon ${jb_epsilon} --T ${T} --train_epochs 20

@@ -3,7 +3,7 @@ python defenses/victim/train.py CUBS200 resnet50 --out_path models/victim/CUBS20
 
 ################################ CUB200 ################################
 ### If you have multiple GPUs on the machine, use this to select the specific GPU
-dev_id=2
+dev_id=3
 ### p_v = victim model dataset
 p_v=CUBS200
 ### f_v = architecture of victim model
@@ -51,7 +51,7 @@ T=8
 policy_suffix="ss${seedsize}_eps${jb_epsilon}"
 
 ## semisupervised setting
-semi_train_weight=1.0
+semi_train_weight=0.0
 semi_dataset=${queryset}
 
 ### Defense strategy

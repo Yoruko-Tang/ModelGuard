@@ -31,7 +31,7 @@ from defenses.victim import *
 from wb_recover import Table_Recover
 
 
-
+from copy import deepcopy
 
 
 
@@ -84,7 +84,7 @@ class RandomAdversaryIters(object):
             niters = budget
         start_B = 0
         end_B = niters
-        self.idx_set = set(self.all_idxs[:budget])
+        self.idx_set = self.all_idxs[:budget]
 
         stat = (self.label_recover is not None) and (self.blackbox.log_path is not None)
         if stat:
@@ -95,8 +95,8 @@ class RandomAdversaryIters(object):
                     wf.write('\t'.join(columns) + '\n')
 
         print('Constructing transferset using: # unique images = {}, # queries = {}'.format(len(self.idx_set), niters))
-        if niters > budget:
-            print('!!! WARNING !!! niters ({}) > budget ({}). Images will be repeated.'.format(niters, budget))
+        assert niters <= budget, "Query number cannot be larger than budget!"
+            #print('!!! WARNING !!! niters ({}) > budget ({}). Images will be repeated.'.format(niters, budget))
 
         if queries_per_image > 1:
             print('=> Obtaining mean posteriors over {} predictions per image'.format(queries_per_image))
@@ -104,7 +104,7 @@ class RandomAdversaryIters(object):
         y_t_list = []
         IMG,Y_true = [],[]
 
-        for i in range(queries_per_image):
+        for q in range(queries_per_image):
             num_queries = 0
             Y_t = []
             with tqdm(total=niters) as pbar:
@@ -112,19 +112,20 @@ class RandomAdversaryIters(object):
 
                     # idxs = np.random.choice(list(self.idx_set), replace=False,
                     #                         size=min(self.batch_size, niters - num_queries))
-                    idxs = np.arange(B,min(B+self.batch_size,niters)) # fix the sampling order
-                    self.idx_set = self.idx_set - set(idxs)
                     
-                    num_queries += len(idxs)*queries_per_image
+                    idxs = self.idx_set[np.arange(B,min(B+self.batch_size,end_B))] # fix the sampling order
+                    # self.idx_set = self.idx_set - set(idxs)
+                    
+                    num_queries += len(idxs)
 
-                    if len(self.idx_set) == 0:
-                        # print('=> Query set exhausted. Now repeating input examples.')
-                        self.idx_set = set(self.all_idxs[:budget])
+                    # if len(self.idx_set) == 0:
+                    #     # print('=> Query set exhausted. Now repeating input examples.')
+                    #     self.idx_set = set(self.all_idxs[:budget])
 
                     x_t = torch.stack([self.queryset[i][0] for i in idxs]).to(self.blackbox.device)
                     
                     t_start = time.time()
-                    if i == 0:
+                    if q == 0:
                         y_t, y_t_true = self.blackbox(x_t,return_origin=True)
                         t_end = time.time()
                         self.call_times.append(t_end - t_start)

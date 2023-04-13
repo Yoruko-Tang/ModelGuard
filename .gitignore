@@ -1,5 +1,6 @@
 # repo specific
 data/
+models/
 run*.py
 trash*.py
 

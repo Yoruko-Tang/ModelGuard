@@ -4,6 +4,7 @@ from .blackbox import Blackbox
 ## Blackbox
 from .mad import MAD
 from .mld import MLD
+from .am import AM
 from .reversesigmoid import ReverseSigmoid   # Reverse Sigmoid noise
 from .randnoise import RandomNoise  # Random noise in logit space
 

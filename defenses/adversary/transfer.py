@@ -247,6 +247,8 @@ def main():
         BB = MAD_WB
     elif defense_type == 'mld':
         BB = MLD
+    elif defense_type == "am":
+        BB = AM
     elif defense_type == 'reverse_sigmoid':
         BB = ReverseSigmoid
     elif defense_type == 'reverse_sigmoid_wb':

@@ -1,7 +1,7 @@
 # Poison Can Be Antidote
 
 ## Environment
-1. Python 1.7.0
+1. PyTorch 1.7.0
 2. PuLP 2.6.0
 
 ## Instruction

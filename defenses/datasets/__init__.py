@@ -7,6 +7,7 @@ from PIL import ImageFilter
 from torchvision.datasets import ImageFolder
 from defenses.datasets.caltech256 import Caltech256
 from defenses.datasets.cifarlike import CIFAR10, CIFAR100, SVHN, TinyImagesSubset
+from defenses.datasets.gtsrb import GTSRB
 from defenses.datasets.cubs200 import CUBS200
 from defenses.datasets.diabetic5 import Diabetic5
 from defenses.datasets.imagenet1k import ImageNet1k
@@ -51,6 +52,7 @@ dataset_to_modelfamily = {
     'CIFAR10': 'cifar',
     'CIFAR100': 'cifar',
     'SVHN': 'cifar',
+    'GTSRB': 'cifar',
     'TinyImagesSubset': 'cifar',
 
     # Imagenet
@@ -94,6 +96,7 @@ modelfamily_to_transforms = {
 
     'cifar': {
         'train': transforms.Compose([
+            transforms.Resize([32,32]),
             transforms.RandomCrop(32, padding=4),
             transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
@@ -101,6 +104,7 @@ modelfamily_to_transforms = {
                                  std=(0.2023, 0.1994, 0.2010)),
         ]),
         'test': transforms.Compose([
+            transforms.Resize([32,32]),
             transforms.ToTensor(),
             transforms.Normalize(mean=(0.4914, 0.4822, 0.4465),
                                  std=(0.2023, 0.1994, 0.2010)),

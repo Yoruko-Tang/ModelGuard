@@ -335,6 +335,8 @@ class MAD(Blackbox):
 
             # Find the next vertex extreme
             k_list = np.array(sorted((set(range(K)) - set(fixed_verts))), dtype=int)
+            if len(k_list)==0:
+                break
             y_extreme_batch = []
             for i, k in enumerate(k_list):
                 y_extreme = y_prev_extreme.clone().detach()

@@ -18,7 +18,7 @@ The following commands run in shell define some common settings.
 ```shell
 ################################ CUB200 ################################
 ### If you have multiple GPUs on the machine, use this to select the specific GPU
-dev_id=3
+dev_id=2
 ### p_v = victim model dataset
 p_v=CUBS200
 ### f_v = architecture of victim model
@@ -41,7 +41,7 @@ training_batch_size=32
 pretrained=imagenet
 ```
 
-```div_id```: the id of device (GPU) to run the expeirments.
+```div_id```: the id of device (GPU) to run the experiments.
 
 ```p_v```: The training dataset of the victim model.
 
@@ -68,12 +68,19 @@ pretrained=imagenet
 ### Generate Victim Model
 After defining the general setup, you can generate the victim model if you have not done this before. Use the following command:
 
-```
+```shell
 # (defense) train an original (blackbox) model
 python defenses/victim/train.py ${p_v} ${f_v} -o ${vic_dir} -b 64 -d ${dev_id} -e 100 -w 4 --lr 0.01 --lr_step 30 --lr_gamma 0.5 --pretrained ${pretrained}
 ```
 
-You only need to generate victim model once for all the experiments on this dataset.
+To train an original (blackbox) model with outlier exposure to run the adaptive misinformation attack, use the following command, add argument `--am_flag`:
+
+```shell
+# (defense) train an original (blackbox) model with outlier exposure
+python defenses/victim/train.py ${p_v} ${f_v} -o ${vic_dir}-OE -b 64 -d ${dev_id} -e 100 -w 4 --lr 0.01 --lr_step 30 --lr_gamma 0.5 --pretrained ${pretrained} --am_flag --dataset_oe ImageNet1k
+``` 
+
+You will need to generate victim model twice, once original and once with outlier exposure. These two models will be used for all the experiments on this dataset.
 
 ### Define Attack Method
 You can define different attacks with the following commands when using different options.
@@ -288,9 +295,30 @@ eps=1.0
 out_dir=models/final_bb_dist/${p_v}-${f_v}/${policy}${policy_suffix}-${queryset}-B${budget}/mld_${ydist}/batch${batch_size}-eps[${eps},${quantize_epsilon}]_bc${batch_constraint}
 # Parameters to defense strategy, provided as a key:value pair string. 
 defense_args="epsilon:${eps};batch_constraint:${batch_constraint};ydist:${ydist};out_path:${out_dir}"
+
+```
+7. Adaptive Misinformation
+```shell
+## Quantization
+quantize=0
+quantize_epsilon=0.0
+optim=0
+ydist=l1
+
+# get centroids from query
+frozen=0
+quantize_args="epsilon:${quantize_epsilon};ydist:${ydist};optim:${optim};frozen:${frozen};ordered_quantization:1"
+
+#AM
+strat=am
+defense_level=0.99
+
+# Output path to attacker's model
+out_dir=models/final_bb_dist/${p_v}-${f_v}/${policy}${policy_suffix}-${queryset}-B${budget}/am/def_level${defense_level}
+
 ```
 
-7. Ordered Quantization
+8. Ordered Quantization
 ```shell
 ### Defense strategy
 ## Quantization
@@ -311,6 +339,8 @@ out_dir=models/final_bb_dist/${p_v}-${f_v}/${policy}${policy_suffix}-${queryset}
 defense_args="out_path:${out_dir}"
 ```
 
+
+
 ### Query and Training
 After defining attack and defense, you can use the following commands to query and train the shadow model.
 
@@ -322,6 +352,7 @@ python defenses/adversary/transfer.py ${policy} ${vic_dir} ${strat} ${defense_ar
 # (adversary) train kickoffnet and evaluate
 python defenses/adversary/train.py ${out_dir} ${f_v} ${p_v} --budgets 50000 -e ${epochs} -b ${training_batch_size} --lr ${lr} --lr_step ${lr_step} --lr_gamma ${lr_gamma} -d ${dev_id} -w 4 --pretrained ${pretrained} --vic_dir ${vic_dir} --semitrainweight ${semi_train_weight} --semidataset ${semi_dataset} 
 ```
+\
 
 2. JBDA-based
 ```shell

@@ -21,6 +21,7 @@ import defenses.config as cfg
 from defenses import datasets
 import defenses.utils.model as model_utils
 import defenses.models.zoo as zoo
+import defenses.utils.admis as model_utils_admis
 
 
 
@@ -53,6 +54,14 @@ def main():
     parser.add_argument('--train_subset', type=int, help='Use a subset of train set', default=None)
     parser.add_argument('--pretrained', type=str, help='Use pretrained network', default=None)
     parser.add_argument('--weighted_loss', action='store_true', help='Use a weighted loss', default=None)
+
+    # Args for Adaptive Misinformation with Outlier Exposure
+    parser.add_argument('--am_flag', action='store_true', help='Use Adaptive Misinformation defense', default=False)
+    parser.add_argument('--oe_lamb', type=float, default=0.5, metavar='LAMB',
+                        help='Lambda for Outlier Exposure')
+    parser.add_argument('-doe', '--dataset_oe', metavar='DS_OE_NAME', type=str, help='OE Dataset name',
+                        default='Indoor67')
+    
     args = parser.parse_args()
     params = vars(args)
 
@@ -91,9 +100,31 @@ def main():
     model = zoo.get_net(model_name, modelfamily, pretrained, num_classes=num_classes)
     model = model.to(device)
 
+    if params['am_flag']:  # set up dataset for Outlier Exposure
+        trainset_oe = None
+        testset_oe = None
+        model_poison = None
+        dataset_oe_name = params['dataset_oe']
+        if dataset_oe_name not in valid_datasets:
+            raise ValueError('OE Dataset not found. Valid arguments = {}'.format(valid_datasets))
+        dataset_oe = datasets.__dict__[dataset_oe_name]
+        modelfamily_oe = datasets.dataset_to_modelfamily[dataset_oe_name]
+        train_oe_transform = datasets.modelfamily_to_transforms[modelfamily_oe]['train']
+        test_oe_transform = datasets.modelfamily_to_transforms[modelfamily_oe]['test']
+        trainset_oe = dataset_oe(train=True, transform=train_oe_transform)
+        testset_oe = dataset_oe(train=False, transform=test_oe_transform)
+        model_poison = zoo.get_net(model_name, modelfamily, pretrained,
+                                   num_classes=num_classes)  # Alt model for Selective Misinformation
+        model_poison = model_poison.to(device)
+
     # ----------- Train
     out_path = params['out_path']
     model_utils.train_model(model, trainset, testset=testset, device=device, **params)
+
+    if params['am_flag']:
+        model_utils_admis.train_model(model, trainset=trainset, trainset_OE=trainset_oe, testset=testset, testset_OE=testset_oe,
+                            model_poison=model_poison, device=device, **params)
+        torch.save(model_poison.state_dict(), out_path + '/model_poison.pt')
 
     # Store arguments
     params['created_on'] = str(datetime.now())

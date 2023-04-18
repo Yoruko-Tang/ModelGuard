@@ -102,4 +102,4 @@ def samples_to_transferset(samples, budget=None, transform=None, target_transfor
 BBOX_CHOICES = ['none', 'topk', 'rounding',
                 'reverse_sigmoid', 'reverse_sigmoid_wb',
                 'rand_noise', 'rand_noise_wb',
-                'mad', 'mad_wb','mld']
+                'mad', 'mad_wb','mld', 'am']

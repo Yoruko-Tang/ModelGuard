@@ -4,6 +4,7 @@ models/
 run*.py
 trash*.py
 .vscode/
+*.tsv
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

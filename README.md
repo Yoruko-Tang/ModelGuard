@@ -18,7 +18,7 @@ The following commands run in shell define some common settings.
 ```shell
 ################################ CUB200 ################################
 ### If you have multiple GPUs on the machine, use this to select the specific GPU
-dev_id=2
+dev_id=3
 ### p_v = victim model dataset
 p_v=CUBS200
 ### f_v = architecture of victim model
@@ -77,7 +77,9 @@ To train an original (blackbox) model with outlier exposure to run the adaptive 
 
 ```shell
 # (defense) train an original (blackbox) model with outlier exposure
-python defenses/victim/train.py ${p_v} ${f_v} -o ${vic_dir}-OE -b 64 -d ${dev_id} -e 100 -w 4 --lr 0.01 --lr_step 30 --lr_gamma 0.5 --pretrained ${pretrained} --am_flag 
+oeset=Indoor67
+
+python defenses/victim/train.py ${p_v} ${f_v} -o ${vic_dir}-OE-${oeset} -b 64 -d ${dev_id} -e 100 -w 4 --lr 0.01 --lr_step 30 --lr_gamma 0.5 --pretrained ${pretrained} --am_flag --dataset_oe ${oeset}
 ``` 
 
 You will need to generate victim model twice, once original and once with outlier exposure. These two models will be used for all the experiments on this dataset.

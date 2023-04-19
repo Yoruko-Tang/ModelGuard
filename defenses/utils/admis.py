@@ -296,7 +296,7 @@ def train_model(
     resume=None,
     epochs=100,
     log_interval=100,
-    checkpoint_suffix="oe",
+    checkpoint_suffix="_oe",
     optimizer=None,
     scheduler=None,
     **kwargs

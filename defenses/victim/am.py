@@ -71,14 +71,21 @@ class AM(Blackbox):
                        use_adaptive=use_adaptive)
         return blackbox
 
-    def __call__(self, x, T=1):
+    def __call__(self, x, T=1, return_origin=False):
         with torch.no_grad():
             x = x.to(self.device)
             y = self.model(x)
             self.__call_count += x.shape[0]
             y = F.softmax(y/T, dim=1)
         y_mod = self.defense_fn(x, y)
-        return y_mod
+
+        # create a placeholder y_v
+        y_v = torch.zeros_like(y_mod) #CHECK THIS
+
+        if return_origin:
+            return y_mod, y_v #CHECK THIS
+        else:
+            return y_mod
 
 
 def compute_hellinger(y_a, y_b):

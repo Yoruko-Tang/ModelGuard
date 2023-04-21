@@ -25,8 +25,18 @@ p_v=CUBS200
 f_v=resnet50
 ### queryset = p_a = image pool of the attacker 
 queryset=ImageNet1k
+### train oe model as well if we want to run adaptive misinformation attack
+am_flag=True
+oeset=Indoor67
+
+if [ ${am_flag} = True ]; then
+    am_suffix="-OE-${oeset}"
+else
+    am_suffix=""
+fi
+
 ### Path to victim model's directory (the one downloded earlier)
-vic_dir=models/victim/${p_v}-${f_v}-train-nodefense
+vic_dir=models/victim/${p_v}-${f_v}-train-nodefense${am_suffix}
 ### No. of images queried by the attacker. With 60k, attacker obtains 99.05% test accuracy on MNIST at eps=0.0.
 budget=50000 
 ### Batch size of queries to process for the attacker
@@ -77,9 +87,7 @@ To train an original (blackbox) model with outlier exposure to run the adaptive 
 
 ```shell
 # (defense) train an original (blackbox) model with outlier exposure
-oeset=Indoor67
-
-python defenses/victim/train.py ${p_v} ${f_v} -o ${vic_dir}-OE-${oeset} -b 64 -d ${dev_id} -e 100 -w 4 --lr 0.01 --lr_step 30 --lr_gamma 0.5 --pretrained ${pretrained} --am_flag --dataset_oe ${oeset}
+python defenses/victim/train.py ${p_v} ${f_v} -o ${vic_dir} -b 64 -d ${dev_id} -e 100 -w 4 --lr 0.01 --lr_step 30 --lr_gamma 0.5 --pretrained ${pretrained} --am_flag --dataset_oe ${oeset}
 ``` 
 
 You will need to generate victim model twice, once original and once with outlier exposure. These two models will be used for all the experiments on this dataset.
@@ -314,9 +322,12 @@ quantize_args="epsilon:${quantize_epsilon};ydist:${ydist};optim:${optim};frozen:
 #AM
 strat=am
 defense_level=0.99
+# proxydir=models/victim/${p_v}-${f_v}-train-nodefense-${proxystate}-advproxy
 
 # Output path to attacker's model
-out_dir=models/final_bb_dist/${p_v}-${f_v}/${policy}${policy_suffix}-${queryset}-B${budget}/am/def_level${defense_level}
+out_dir=models/final_bb_dist/${p_v}-${f_v}/${policy}${policy_suffix}-${queryset}-B${budget}/${strat}/def_level${defense_level}_${oeset}
+# Parameters to defense strategy, provided as a key:value pair string. 
+defense_args="defense_level:${defense_level};out_path:${out_dir};"
 
 ```
 

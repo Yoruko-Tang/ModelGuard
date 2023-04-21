@@ -215,9 +215,9 @@ def test_step(
         for batch_idx, (inputs, targets) in enumerate(test_loader):
             inputs, targets = inputs.to(device), targets.to(device)
             outputs = model(inputs)
-            print(inputs.size())
-            print(outputs.size())
-            print(targets.size())
+            # print(inputs.size())
+            # print(outputs.size())
+            # print(targets.size())
             loss_clean = criterion(outputs, targets)
             nclasses = outputs.size(1)
 
@@ -282,7 +282,7 @@ def train_model(
     trainset,
     trainset_OE=None,
     model_poison=None,
-    batch_size=64,
+    batch_size=32,
     criterion_train=None,
     criterion_test=None,
     testset=None,

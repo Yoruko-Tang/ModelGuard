@@ -99,8 +99,12 @@ def main():
         queryset = params['queryset']
     # ----------- Set up transferset
     transferset_path = osp.join(model_dir, 'transferset.pickle')
-    with open(transferset_path, 'rb') as rf:
-        transferset_samples = pickle.load(rf)
+    try:
+        with open(transferset_path, 'rb') as rf:
+            transferset_samples = torch.load(rf) # use torch to load tensors first
+    except RuntimeError:
+        with open(transferset_path, 'rb') as rf:
+            transferset_samples = pickle.load(rf) # if failed, then use old-fasion loading with pickle
     num_classes = transferset_samples[0][1].size(0)
     transfer_modelfamily = datasets.dataset_to_modelfamily[queryset]
     transfer_transform = datasets.modelfamily_to_transforms[transfer_modelfamily]['test']

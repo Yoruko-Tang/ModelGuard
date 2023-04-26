@@ -33,7 +33,7 @@ from wb_recover import Table_Recover
 
 from copy import deepcopy
 
-
+from defenses.utils.utils import samples_to_transferset
 
 
 
@@ -73,7 +73,7 @@ class RandomAdversaryIters(object):
         self.transferset = []
         self.call_times = []
 
-    def get_transferset(self, budget, niters=None, queries_per_image=1):
+    def get_transferset(self, budget, niters=None, queries_per_image=1,only_recovery=False):
         """
 
         :param budget:  # unique images drawn from queryset
@@ -103,6 +103,10 @@ class RandomAdversaryIters(object):
 
         y_t_list = []
         IMG,Y_true = [],[]
+        if self.label_recover is not None:
+            X = [] # store input for information in recovery
+            if only_recovery:
+                queries_per_image = 1
 
         for q in range(queries_per_image):
             num_queries = 0
@@ -126,7 +130,11 @@ class RandomAdversaryIters(object):
                     
                     t_start = time.time()
                     if q == 0:
-                        y_t, y_t_true = self.blackbox(x_t,return_origin=True)
+                        if only_recovery:
+                            y_t = torch.stack([self.queryset[i][1] for i in idxs]).to(self.blackbox.device)
+                            y_t_true = F.softmax(self.blackbox.model(x_t),dim=1).detach()
+                        else:
+                            y_t, y_t_true = self.blackbox(x_t,return_origin=True)
                         t_end = time.time()
                         self.call_times.append(t_end - t_start)
                         if hasattr(self.queryset, 'samples'):
@@ -142,7 +150,9 @@ class RandomAdversaryIters(object):
                                 img_t = [x.numpy() for x in img_t]
                             
                         IMG = IMG + img_t
-                        Y_true.append(y_t_true)
+                        Y_true.append(y_t_true.detach().cpu())
+                        if self.label_recover is not None:
+                            X.append(x_t.detach().cpu())
                     else:
                         y_t = self.blackbox(x_t)
                         t_end = time.time()
@@ -153,12 +163,15 @@ class RandomAdversaryIters(object):
             y_t_list.append(torch.cat(Y_t,dim=0))
         Y = torch.stack(y_t_list).mean(dim=0)# Mean over queries
         Y_true = torch.cat(Y_true,dim=0)
+        if self.label_recover is not None:
+            X = torch.cat(X,dim=0)
         
         if self.label_recover is not None:
             print("=> Start to recover the clean labels!")
-            self.label_recover.generate_lookup_table(estimation_set = Y_true)
+            self.label_recover.generate_lookup_table(load_path=osp.join(self.blackbox.out_path, 'recover_table.pickle'),estimation_set = [X,Y_true])
             with tqdm(total=len(Y)) as pbar:
                 Y = self.label_recover(Y,pbar) # recover the whole transfer set together to reduce cpu-gpu convert
+                Y = Y.to(Y_true)
             if stat:
                 l1_max, l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std = self.blackbox.calc_query_distances([[Y_true,Y],])
                 with open(log_path, 'a') as af:
@@ -207,6 +220,7 @@ def main():
     parser.add_argument('-d', '--device_id', metavar='D', type=int, help='Device id', default=0)
     parser.add_argument('-w', '--nworkers', metavar='N', type=int, help='# Worker threads to load data', default=10)
     parser.add_argument('--train_transform', action='store_true', help='Perform data augmentation', default=False)
+    parser.add_argument('--only_recovery', action='store_true', help='Perform prediction recovery only', default=False)
     args = parser.parse_args()
     params = vars(args)
 
@@ -230,7 +244,24 @@ def main():
     if params['train_transform']:
         print('=> Using data augmentation while querying')
     transform = datasets.modelfamily_to_transforms[modelfamily][transform_type]
-    queryset = datasets.__dict__[queryset_name](train=True, transform=transform)
+
+    only_recovery = params['only_recovery'] and osp.exists(osp.join(out_path, 'transferset.pickle'))
+    if only_recovery:
+        # only perform prediction recovery with given query set
+        print("=> only recovery begins!")
+        transferset_path = osp.join(out_path, 'transferset.pickle')
+        try:
+            with open(transferset_path, 'rb') as rf:
+                transferset_samples = torch.load(rf) # use torch to load tensors first
+        except RuntimeError:
+            with open(transferset_path, 'rb') as rf:
+                transferset_samples = pickle.load(rf) # if failed, then use old-fasion loading with pickle
+        num_classes = transferset_samples[0][1].size(0)
+        queryset = samples_to_transferset(transferset_samples, budget=len(transferset_samples), transform=transform)
+        print('=> found transfer set with {} samples, {} classes'.format(len(transferset_samples), num_classes))
+    else:# perform query and recovery together
+        queryset = datasets.__dict__[queryset_name](train=True, transform=transform)
+    
     if params['budget'] is None:
         params['budget'] = len(queryset)
 
@@ -289,10 +320,11 @@ def main():
         raise ValueError("Unrecognized policy")
 
     print('=> constructing transfer set...')
-    transferset = adversary.get_transferset(params['budget'], params['nqueries'], queries_per_image=params['qpi'])
+    transferset = adversary.get_transferset(params['budget'], params['nqueries'], queries_per_image=params['qpi'],only_recovery=only_recovery)
     transfer_out_path = osp.join(out_path, 'transferset.pickle')
     with open(transfer_out_path, 'wb') as wf:
-        pickle.dump(transferset, wf)
+        torch.save(transferset,wf) # there exist some issues of using pickle to dump tensors with multiprocessing, we use torch instead
+        #pickle.dump(transferset, wf)
     print('=> transfer set ({} samples) written to: {}'.format(len(transferset), transfer_out_path))
 
     # Store run times

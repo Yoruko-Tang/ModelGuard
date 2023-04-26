@@ -170,6 +170,6 @@ class MLD(Blackbox):
         else:
             return y_prime
 
-    def get_yprime(self,y):
+    def get_yprime(self,y,x_info=None):
         y_prime,_ = self.oracle_batch_pulp(y,self.epsilon,self.batch_constraint,tolerance=None)
         return y_prime

@@ -87,6 +87,6 @@ class ReverseSigmoid(Blackbox):
         else:
             return y_prime
 
-    def get_yprime(self,y):
+    def get_yprime(self,y,x_info=None):
         y_prime = y - ReverseSigmoid.reverse_sigmoid(y, self.beta, self.gamma)
         return y_prime/y_prime.sum(dim=1)[:, None]

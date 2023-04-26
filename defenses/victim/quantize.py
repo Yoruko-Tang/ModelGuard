@@ -25,6 +25,7 @@ class incremental_kmeans():
         self.num_classes = self.blackbox.num_classes
         self.log_path = self.blackbox.log_path
         self.log_prefix = self.blackbox.log_prefix
+        self.require_xinfo = self.blackbox.require_xinfo
         
         self.epsilon = epsilon
         if ydist == 'l1':
@@ -455,7 +456,7 @@ class incremental_kmeans():
             if len(self.centroids[i])>0:
                 self.centroids[i] = self.centroids[i].to(self.device)
 
-    def get_yprime(self,y):
+    def get_yprime(self,y,x_info=None):
         # static quantization (frozen=1), used by attacker offline
         # everything should be done on cpu for multiprocessing compability
         
@@ -474,8 +475,11 @@ class incremental_kmeans():
                     _,cent_idxs = self.quantize(y_prime,self.centroids[max_idx])
                 cents[i,:] = self.centroids[max_idx][cent_idxs]
 
-        y_final = self.blackbox.get_yprime(cents) # defense-unaware attack next
+        y_final = self.blackbox.get_yprime(cents,x_info=x_info) # defense-unaware attack next
         return y_final
+
+    def get_xinfo(self,x):
+        return self.blackbox.get_xinfo(x)
 
     def print_centroid_info(self):
         for l in range(len(self.centroids)):

@@ -3,7 +3,7 @@ python defenses/victim/train.py GTSRB vgg16_bn --out_path models/victim/GTSRB-vg
 
 ################################ GTSRB ################################
 ### If you have multiple GPUs on the machine, use this to select the specific GPU
-dev_id=0
+dev_id=3
 ### p_v = victim model dataset
 p_v=GTSRB
 ### f_v = architecture of victim model
@@ -27,6 +27,7 @@ training_batch_size=128
 ## pretrained model
 # use imagenet pretrained
 pretrained=imagenet
+
 # use optimal pretrained
 pretrained=${vic_dir}
 
@@ -34,13 +35,24 @@ pretrained=${vic_dir}
 ## random
 policy=random
 hardlabel=0
-defense_aware=0
-recover_table_size=10000000
+defense_aware=1
+
+# Lookup Table Attack
+recover_table_size=1000000
 recover_norm=1
 recover_tolerance=0.01
-recover_proc=10
+concentration_factor=8.0
+recover_proc=5
 policy_suffix="_da${defense_aware}_hard${hardlabel}"
-recover_params="table_size:${recover_table_size};recover_norm:${recover_norm};tolerance:${recover_tolerance};recover_proc:${recover_proc}"
+recover_params="table_size:${recover_table_size};recover_norm:${recover_norm};tolerance:${recover_tolerance};concentration_factor:${concentration_factor};recover_proc:${recover_proc}"
+
+
+# D-DAE Attack
+recover_table_size=1000000
+concentration_factor=8.0
+recover_proc=10
+policy_suffix="_ddae${defense_aware}_hard${hardlabel}"
+recover_params="table_size:${recover_table_size};concentration_factor:${concentration_factor};recover_proc:${recover_proc};recover_nn:1"
 
 
 ## jbda/jbself/jbtop
@@ -127,7 +139,7 @@ batch_constraint=0
 # Metric for perturbation ball dist(y, y'). Supported = L1, L2, KL
 ydist=l1
 # Perturbation norm
-eps=0.6
+eps=1.0
 # Output path to attacker's model
 out_dir=models/final_bb_dist/${p_v}-${f_v}/${policy}${policy_suffix}-${queryset}-B${budget}/mld_${ydist}/batch${batch_size}-eps[${eps},${quantize_epsilon}]_bc${batch_constraint}
 # Parameters to defense strategy, provided as a key:value pair string. 

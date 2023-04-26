@@ -11,22 +11,18 @@ import os.path as osp
 import pickle
 import numpy as np
 
+import torch.multiprocessing
 from torch.multiprocessing import Process,Manager
 
 from defenses.utils.model import soft_cross_entropy
 numclasses_to_nn = {
-    10:[64,64],
-    100:[512,512],
-    200:[1024,1024],
-    256:[1024,1024]
+    10:[128,64],
+    43:[512,256],
+    100:[1024,512],
+    200:[2048,1024],
+    256:[2048,1024]
 }
 
-numclasses_to_alpha = {
-    10:10,
-    100:100,
-    200:1000,
-    256:1000
-}
 
 class Recover_NN(nn.Module):
     def __init__(self,num_classes=10):
@@ -36,23 +32,22 @@ class Recover_NN(nn.Module):
         self.fc2 = nn.Linear(hidden_layer[0],hidden_layer[1])
         self.fc3 = nn.Linear(hidden_layer[1],num_classes)
 
+        self.bn1 = nn.BatchNorm1d(hidden_layer[0])
+        self.bn2 = nn.BatchNorm1d(hidden_layer[1])
+        self.bn3 = nn.BatchNorm1d(num_classes)
+
     def forward(self,x):
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        x = self.fc3(x)
-        return x
+        x = F.leaky_relu(self.bn1(self.fc1(x)),0.2)
+        x = F.leaky_relu(self.bn2(self.fc2(x)),0.2)
+        x = F.leaky_relu(self.bn3(self.fc3(x)),0.2)
+        return F.softmax(x,dim=1)
     
-    def predict(self,x):
-        self.eval()
-        output = self.forward(x)
-        output = F.softmax(output,dim=1)
-        return output
 
 
 
 class Table_Recover():
     max_sample_size=5000000
-    def __init__(self,blackbox,table_size=1000000,batch_size=1,epsilon=None,perturb_norm=1,recover_mean=True,recover_norm=2,tolerance=1e-4,recover_nn=False,alpha=None,recover_proc=1):
+    def __init__(self,blackbox,table_size=1000000,batch_size=1,epsilon=None,perturb_norm=1,recover_mean=True,recover_norm=2,tolerance=1e-4,concentration_factor=4.0,recover_nn=False,alpha=None,recover_proc=1):
         self.table_size = table_size
         self.blackbox = blackbox
         self.num_classes = self.blackbox.num_classes
@@ -63,7 +58,8 @@ class Table_Recover():
         self.recover_mean=recover_mean
         self.recover_norm = recover_norm
         self.tolerance = tolerance
-        self.recover_nn = recover_nn
+        self.concentration_factor=concentration_factor
+        self.recover_nn = bool(recover_nn)
         self.alpha = alpha
         self.num_proc = recover_proc
         self.true_label_sample,self.perturbed_label_sample = None, None
@@ -86,14 +82,21 @@ class Table_Recover():
                                
         if table_size>0:
             print("Building Recover Table! Total Samples Number={}!".format(table_size))
-            
-            true_label_sample = self.get_dirichlet_samples(self.alpha,table_size,estimation_set)
-
+            if self.alpha is None and estimation_set is not None:
+                estimation_input,estimation_label = self.estimate_dir(estimation_set)
+                concentration = self.num_classes*self.concentration_factor
+                self.alpha = estimation_label*concentration# The std of dirichlet distribution is prop to 1/sqrt(concentration)
+                # x_infos = self.blackbox.get_xinfo(estimation_input)
+            else:
+                estimation_input = None
+            if not self.blackbox.require_xinfo: # if the blackbox does not require xinfo for yprime, we disable it in the following procedure.
+                estimation_input = None
+            true_label_sample,x_info_idxs = self.get_dirichlet_samples(self.alpha,table_size)
 
             if self.num_proc == 1:
-                perturbed_label_sample = self.get_perturbed_label_sample(self.blackbox,true_label_sample,self.batch_size)
+                perturbed_label_sample = self.get_perturbed_label_sample(self.blackbox,true_label_sample,estimation_input,x_info_idxs,self.batch_size)
             else:
-                perturbed_label_sample = self.get_perturbed_label_sample_parallel(self.blackbox,true_label_sample,self.num_proc)
+                perturbed_label_sample = self.get_perturbed_label_sample_parallel(self.blackbox,true_label_sample,estimation_input,x_info_idxs,self.num_proc)
             
             if self.epsilon is not None:
                 pert_norm = torch.norm(true_label_sample-perturbed_label_sample,p=self.perturb_norm,dim=1)
@@ -123,40 +126,56 @@ class Table_Recover():
             self.logger.writerow(['call count','recover distance mean', 'recover distance std'])
             self.call_count = 0
         else:
-            print("Training NN for Recovering!")
             self.nn = Recover_NN(self.num_classes)
+            print("Generative Model:")
             print(self.nn)
+
             self.nn.to(self.device)
-            self.log_path = osp.join(self.blackbox.out_path, 'recover_nn_training.log.tsv')
-            self.logger = csv.writer(open(self.log_path,'w'),delimiter='\t')
-            self.logger.writerow(['Epoch','Loss', 'L2 Distance'])
-            self.nn = self.train_recover_nn(self.nn,self.perturbed_label_sample,self.true_label_sample,epoch=100,batch_size=50000,lr=1e-3)
+            model_out_path = self.log_path = osp.join(self.blackbox.out_path, 'recover_nn.pt')
+            if osp.exists(model_out_path):
+                print("Load existing generative model at "+model_out_path)
+                self.nn.load_state_dict(torch.load(model_out_path))
+            else:
+                print("Training NN for Recovering!")
+                self.log_path = osp.join(self.blackbox.out_path, 'recover_nn_training.log.tsv')
+                self.logger = csv.writer(open(self.log_path,'w'),delimiter='\t')
+                self.logger.writerow(['Epoch','Loss', 'L2 Distance'])
+                self.nn = self.train_recover_nn(self.nn,self.perturbed_label_sample,self.true_label_sample,epoch=200,batch_size=1024,lr=1e-2)
+                
+                torch.save(self.nn.state_dict(), model_out_path)
+                
+            
 
     def estimate_dir(self,estimation_set):
         if isinstance(estimation_set,str) and osp.exists(estimation_set): # use labels in a transfer set
             print("Estimating Dirichlet Distribution via Lables in '{}'".format(estimation_set))
             with open(estimation_set,'rb') as wf:
                 estimation_data = pickle.load(wf)
+                estimation_input = torch.cat([torch.tensor(estimation_data[i][0]).reshape([1,-1]) for i in range(len(estimation_data))],dim=0)
                 estimation_label = torch.cat([torch.tensor(estimation_data[i][1]).reshape([1,-1]) for i in range(len(estimation_data))],dim=0)
-        elif isinstance(estimation_set,torch.Tensor): # use labels in a tensor
-            estimation_label = estimation_set.clone().detach()
-        else:
-            raise RuntimeError("Not a valid estimation set form (must be in a path or a tensor)")
-        return estimation_label.to(self.device)
+        else: # use labels in a tensor
+            try:
+                estimation_input = estimation_set[0]
+                estimation_label = estimation_set[1].clone().detach()
+            except:
+                raise RuntimeError("Not a valid estimation set form (must be a path or a list of tensors)") 
+        return estimation_input,estimation_label.to(self.device)
 
-    def get_dirichlet_samples(self,alpha=None,table_size=1000000,estimation_set=None):
+    def get_dirichlet_samples(self,alpha=None,table_size=1000000):
         """
         Generate samples from dirichlet distribution
         """
         sample_list = []
-        if estimation_set is not None:
-            concentration = self.num_classes*4
-            alpha = self.estimate_dir(estimation_set)*concentration
-        elif alpha is None:# preset alphas
+        alpha_idxs = []
+        # if estimation_set is not None:
+        #     concentration = self.num_classes*4
+        #     alpha = self.estimate_dir(estimation_set)*concentration
+        if alpha is None:# preset alphas
             alpha = [k*torch.ones(self.num_classes).to(self.device)/self.num_classes for k in [1.0,]]
         s = table_size//len(alpha)
 
-        for a in alpha:
+        for n,a in enumerate(alpha):
+            alpha_idxs += [n]*s
             distribution = Dirichlet(a)
             group_num = s//self.max_sample_size # the maximum size of samples is 5000000 in one generation
             final_group = s%self.max_sample_size
@@ -167,7 +186,7 @@ class Table_Recover():
             
             # samples = distribution.sample((s,)).cpu()
             # sample_list.append(samples)
-        return torch.cat(sample_list,dim=0)
+        return torch.cat(sample_list,dim=0),alpha_idxs
 
     def get_uniform_samples(self,table_size=1000000):
         """
@@ -177,19 +196,37 @@ class Table_Recover():
 
 
     @staticmethod
-    def get_perturbed_label_sample(blackbox,true_label_sample,batch_size=32,output=None,count=None,proc_idx=None):
+    def get_perturbed_label_sample(blackbox,true_label_sample,xs=None,x_info_idxs=None,batch_size=32,output=None,count=None,proc_idx=None):
         perturbed_label_sample = []
         if count is None:
             pbar = tqdm(total=len(true_label_sample))
         #with tqdm(total=len(true_label_sample)) as pbar:
-        for start_idx in range(0,len(true_label_sample),batch_size):
-            end_idx = min([start_idx+batch_size,len(true_label_sample)])
-            perturbed_label = blackbox.get_yprime(true_label_sample[start_idx:end_idx,:])
-            perturbed_label_sample.append(perturbed_label)
-            if count is not None:
-                count.value += len(perturbed_label)
-            else:
-                pbar.update(len(perturbed_label))
+        if xs is None or x_info_idxs is None:
+            for start_idx in range(0,len(true_label_sample),batch_size):
+                end_idx = min([start_idx+batch_size,len(true_label_sample)])
+                perturbed_label = blackbox.get_yprime(true_label_sample[start_idx:end_idx,:])
+                perturbed_label_sample.append(perturbed_label)
+                if count is not None:
+                    count.value += len(perturbed_label)
+                else:
+                    pbar.update(len(perturbed_label))
+        else:
+            assert len(x_info_idxs) == len(true_label_sample), "The length of x_info_idxs must be equal to the length of true_label_sample!" 
+            x_info_idxs_set = set(x_info_idxs)
+            x_info_idxs = np.array(x_info_idxs)
+            for i in x_info_idxs_set:
+                x_i = xs[i].unsqueeze(0)
+                true_label_i = true_label_sample[x_info_idxs==i].to(blackbox.device)
+                x_info = blackbox.get_xinfo(x_i) # the x_info could be too large to store, so we consider it one by one
+                for start_idx in range(0,len(true_label_i),batch_size):
+                    end_idx = min([start_idx+batch_size,len(true_label_i)])
+                    perturbed_label = blackbox.get_yprime(true_label_i[start_idx:end_idx,:],x_info = x_info)
+                    perturbed_label_sample.append(perturbed_label.detach().cpu())
+                    if count is not None:
+                        count.value += len(perturbed_label)
+                    else:
+                        pbar.update(len(perturbed_label))
+
                 
 
         if output is not None and proc_idx is not None:
@@ -199,19 +236,27 @@ class Table_Recover():
             return torch.cat(perturbed_label_sample,dim=0)
 
 
-    def get_perturbed_label_sample_parallel(self,blackbox,true_label_sample,num_proc=10):
+    def get_perturbed_label_sample_parallel(self,blackbox,true_label_sample,xs=None,x_info_idxs=None,num_proc=10):
         print("Generating recover table with %d processes..."%num_proc)
+        torch.multiprocessing.set_start_method('spawn',force=True)
         if hasattr(blackbox,'cpu'):
             blackbox.cpu()
         with Manager() as manager:
             proc_data = np.array_split(true_label_sample,num_proc)
+            if xs is not None and x_info_idxs is not None:
+                assert len(x_info_idxs) == len(true_label_sample), "x_info_idxs must have the same length as true_lable_sample!"
+                x_info_idxs_proc = np.array_split(x_info_idxs,num_proc)
+                shared_xs = manager.list([x for x in xs]) # use shared memory to reduce memory consumption
+            else:
+                x_info_idxs_proc = [None]*num_proc
+                shared_xs = None
             count = manager.Value('i',0)
             perturbed_label_output = manager.list([None,]*num_proc)
             # for i in range(num_proc):
             #     perturbed_label_output.append(None)
             proc = []
             for i in range(num_proc):
-                p = Process(target=Table_Recover.get_perturbed_label_sample,args=(blackbox,proc_data[i],self.batch_size,perturbed_label_output,count,i))
+                p = Process(target=Table_Recover.get_perturbed_label_sample,args=(blackbox,proc_data[i],shared_xs,x_info_idxs_proc[i],self.batch_size,perturbed_label_output,count,i))
                 proc.append(p)
             for p in proc:
                 p.start()
@@ -240,24 +285,30 @@ class Table_Recover():
             blackbox.to_blackbox_device()
         return res
 
-    def train_recover_nn(self,model,pert_label,true_label,epoch=30,batch_size=50000,lr=1e-2):
+    def train_recover_nn(self,model,pert_label,true_label,epoch=20,batch_size=128,lr=1e-3):
         dataset = TensorDataset(pert_label,true_label)
         trainloader = DataLoader(dataset,batch_size=batch_size,shuffle=True)
-        optimizer = optim.Adam(model.parameters(),lr=lr)
-        scheduler = optim.lr_scheduler.StepLR(optimizer,step_size=5,gamma=0.5)
+        optimizer = optim.SGD(model.parameters(),lr=lr,momentum=0.9,weight_decay=1e-4)
+        scheduler = optim.lr_scheduler.StepLR(optimizer,step_size=100,gamma=0.5)
         model.train()
         for e in tqdm(range(epoch)):
+            total_loss = 0.0
+            total_dist = 0.0
+            total_iter = 0
             for pl,tl in trainloader:
+                total_iter += 1
                 pl,tl = pl.to(self.device),tl.to(self.device)
                 output = model(pl)
-                loss = soft_cross_entropy(output,tl)
+                loss = F.l1_loss(output,tl)*self.num_classes# the l1_loss will reduce all dimension, we recover it to the l1 norm
+                total_loss += loss.item()
+                total_dist += torch.mean(torch.norm(output.detach()-tl,p=2,dim=1)).item()
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
             scheduler.step()
-            l2_dist = torch.mean(torch.norm(model.predict(pl)-tl,p=2,dim=1)).cpu().item()
-            print("Epoch: {}\tLoss: {:.4f}\tL2 Distance: {:.4f}".format(e+1,loss.cpu().item(),l2_dist))
-            self.logger.writerow([e+1,loss.cpu().item(),l2_dist])
+            #l2_dist = torch.mean(torch.norm(model(pl).detach()-tl,p=2,dim=1)).cpu().item()
+            print("Epoch: {}\tLoss: {:.4f}\tL2 Distance: {:.4f}".format(e+1,total_loss/total_iter,total_dist/total_iter))
+            self.logger.writerow([e+1,total_loss/total_iter,total_dist/total_iter])
 
         
         return model
@@ -267,7 +318,7 @@ class Table_Recover():
         yprime = yprime.to(self.device) # all operations in this model is performed on CPU to avoid memory running out
         
         if self.recover_nn:
-            y = self.nn(yprime)
+            res = self.nn(yprime).detach()
         else:
             res = torch.zeros_like(yprime).to(self.device)
             rec_dis = []
@@ -275,6 +326,8 @@ class Table_Recover():
             for c in range(self.num_classes):
                 y = []
                 yprime_c = yprime[top1_label==c]
+                if len(yprime_c)==0:
+                    continue
                 perturbed_label_filtered = self.perturbed_label_sample[self.true_top1==c,:]
                 true_label_filtered = self.true_label_sample[self.true_top1==c,:]
                 perturbed_label_filtered,true_label_filtered = perturbed_label_filtered.to(self.device),true_label_filtered.to(self.device)

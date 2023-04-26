@@ -25,6 +25,7 @@ class Blackbox(object):
         self.output_type = output_type
         self.topk = topk
         self.rounding = rounding
+        self.require_xinfo = False
 
         self.dataset_name = dataset_name
         self.modelfamily = modelfamily
@@ -204,5 +205,8 @@ class Blackbox(object):
     def eval(self):
         self.model.eval()
 
-    def get_yprime(self,y):
+    def get_yprime(self,y,x_info=None):
         return self.truncate_output(y, topk=self.topk, rounding=self.rounding)
+    
+    def get_xinfo(self,x):
+        return None

@@ -31,7 +31,7 @@ class MAD(Blackbox):
                  oracle='extreme', disable_jacobian=False, objmax=False, batch_constraint = False,  *args, **kwargs):
         super().__init__(*args, **kwargs)
         print('=> MAD ({})'.format([self.dataset_name, epsilon, optim, ydist, oracle]))
-
+        self.require_xinfo = True
         self.epsilon = epsilon
 
         self.disable_jacobian = bool(disable_jacobian)
@@ -99,7 +99,7 @@ class MAD(Blackbox):
         # ---------- Precompute G (nk x d matrix): where each row represents gradients w.r.t NLL at y_gt = k
         G = []
         with torch.enable_grad():
-            z_a = model_adv_proxy(x)
+            z_a = model_adv_proxy(x)     
             nlls = -F.log_softmax(z_a, dim=1).view(-1)#.mean(dim=0)  # NLL over K classes
 
             for k in range(len(nlls)):
@@ -906,39 +906,54 @@ class MAD(Blackbox):
         else:
             return y_prime
 
-    def get_yprime(self,y):
+    def get_yprime(self,y,x_info=None):
         if self.oracle not in ['lp_argmax','lp_extreme']:
             n,K = y.shape
-            G = torch.eye(n*K).to(y)
+            yprime = torch.zeros_like(y)
+            if x_info is None:
+                G = torch.eye(K).to(y)
+            else:
+                G = x_info
             if self.D is None:
                 self.D = G.shape[1]
             # y* via oracle
-            if self.oracle == 'random':
-                ystar, ystar_val = self.oracle_rand(G, y)
-            elif self.oracle == 'extreme':
-                ystar, ystar_val = self.oracle_extreme(G, y, max_over_obj=self.objmax)
-            elif self.oracle == 'argmin':
-                ystar, ystar_val = self.oracle_argmin(G, y)
-            elif self.oracle == 'argmax':
-                ystar, ystar_val = self.oracle_argmax_preserving(G, y, max_over_obj=self.objmax)
-            else:
-                raise ValueError()
-            
-            # y* maybe outside the feasible set - project it back
-            if self.optim == 'linesearch':
-                delta = self.linesearch(G, y, ystar, self.ydist, self.epsilon)
-            elif self.optim == 'projections':
-                delta = self.projections(G, y, ystar, self.ydist, self.epsilon)
-            elif self.optim == 'greedy':
-                raise NotImplementedError()
-            else:
-                raise ValueError()
+            for i in range(n):
+                if self.oracle == 'random':
+                    ystar, ystar_val = self.oracle_rand(G, y[i])
+                elif self.oracle == 'extreme':
+                    ystar, ystar_val = self.oracle_extreme(G, y[i], max_over_obj=self.objmax)
+                elif self.oracle == 'argmin':
+                    ystar, ystar_val = self.oracle_argmin(G, y[i])
+                elif self.oracle == 'argmax':
+                    ystar, ystar_val = self.oracle_argmax_preserving(G, y[i], max_over_obj=self.objmax)
+                else:
+                    raise ValueError()
+                
+                # y* maybe outside the feasible set - project it back
+                if self.optim == 'linesearch':
+                    delta = self.linesearch(G, y[i], ystar, self.ydist, self.epsilon)
+                elif self.optim == 'projections':
+                    delta = self.projections(G, y[i], ystar, self.ydist, self.epsilon)
+                elif self.optim == 'greedy':
+                    raise NotImplementedError()
+                else:
+                    raise ValueError()
 
-            # Calc. final objective values
-            yprime = y + delta
+                # Calc. final objective values
+                yprime[i] = y[i] + delta
             
         else:# for lp approx
             # ystar,ystar_val = self.oracle_batch(G,y,self.epsilon,self.oracle,opt_method='revised simplex',tolerance=None)
             yprime,_ = self.oracle_batch_pulp(None,y,self.epsilon,self.batch_constraint,self.oracle,tolerance=None)
 
         return yprime
+
+    def get_xinfo(self,x):
+        if self.disable_jacobian or self.oracle in ['random', 'argmin']:
+            G = None
+        else:
+            G = MAD.compute_jacobian_nll(x, self.model_adv_proxy, device=self.device,max_grad_layer=self.max_grad_layer)
+                
+            # n = len(x)
+            # G = G.reshape([n,-1,G.size(1)])
+        return G

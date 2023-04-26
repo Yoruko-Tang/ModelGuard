@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import print_function, division, absolute_import
 import torchvision.models as models
+from torchvision.models.resnet import BasicBlock,Bottleneck
 import torch.utils.model_zoo as model_zoo
 import torch.nn.functional as F
 import types
@@ -311,7 +312,123 @@ def inceptionv3(num_classes=1000, pretrained='imagenet'):
 
 ###############################################################
 # ResNets
+class Modified_ResNet(models.ResNet):
+    def __init__(self, block, layers, num_classes=1000, zero_init_residual=False, groups=1, width_per_group=64, replace_stride_with_dilation=None, norm_layer=None,rot_semi=False):
+        super().__init__(block, layers, num_classes, zero_init_residual, groups, width_per_group, replace_stride_with_dilation, norm_layer)
+        
+        self.last_linear = self.fc
+        self.fc = None
+        self.rot_semi = rot_semi
+        if rot_semi:
+            self.rot_classifier = nn.Linear(self.last_linear.in_features, 4)
 
+    def features(self, input):
+        x = self.conv1(input)
+        x = self.bn1(x)
+        x = self.relu(x)
+        x = self.maxpool(x)
+
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.layer4(x)
+        return x
+
+    def logits(self, features):
+        x = self.avgpool(features)
+        x = x.view(x.size(0), -1)
+        x = self.last_linear(x)
+        return x
+
+    def forward(self, input):
+        x = self.features(input)
+        x = self.logits(x)
+        return x
+    
+    def rot_forward(self, input):
+        features = self.features(input)
+        x = self.avgpool(features)
+        x = x.view(x.size(0), -1)
+        x = self.rot_classifier(x)
+        return x
+    
+    def copy_from_original_resnet(self,src_resnet):
+        src_sd = src_resnet.state_dict()
+        src_sd['last_linear.weight']=src_sd['fc.weight']
+        src_sd['last_linear.bias']=src_sd['fc.bias']
+        del src_sd['fc.weight']
+        del src_sd['fc.bias']
+        dst_sd = self.state_dict()
+        dst_sd.update(src_sd)
+        self.load_state_dict(dst_sd)
+        self.input_space = src_resnet.input_space
+        self.input_size = src_resnet.input_size
+        self.input_range = src_resnet.input_range
+        self.mean = src_resnet.mean
+        self.std = src_resnet.std
+
+def _resnet(block, layers, **kwargs):
+    model = Modified_ResNet(block, layers, **kwargs)
+    return model
+
+
+def _resnet18(**kwargs):
+    r"""ResNet-18 model from
+    `"Deep Residual Learning for Image Recognition" <https://arxiv.org/pdf/1512.03385.pdf>`_
+
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+        progress (bool): If True, displays a progress bar of the download to stderr
+    """
+    return _resnet(BasicBlock, [2, 2, 2, 2], **kwargs)
+
+
+def _resnet34(**kwargs):
+    r"""ResNet-34 model from
+    `"Deep Residual Learning for Image Recognition" <https://arxiv.org/pdf/1512.03385.pdf>`_
+
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+        progress (bool): If True, displays a progress bar of the download to stderr
+    """
+    return _resnet(BasicBlock, [3, 4, 6, 3], **kwargs)
+
+
+def _resnet50(**kwargs):
+    r"""ResNet-50 model from
+    `"Deep Residual Learning for Image Recognition" <https://arxiv.org/pdf/1512.03385.pdf>`_
+
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+        progress (bool): If True, displays a progress bar of the download to stderr
+    """
+    return _resnet(Bottleneck, [3, 4, 6, 3], **kwargs)
+
+
+def _resnet101(**kwargs):
+    r"""ResNet-101 model from
+    `"Deep Residual Learning for Image Recognition" <https://arxiv.org/pdf/1512.03385.pdf>`_
+
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+        progress (bool): If True, displays a progress bar of the download to stderr
+    """
+    return _resnet(Bottleneck, [3, 4, 23, 3], **kwargs)
+
+
+def _resnet152(**kwargs):
+    r"""ResNet-152 model from
+    `"Deep Residual Learning for Image Recognition" <https://arxiv.org/pdf/1512.03385.pdf>`_
+
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+        progress (bool): If True, displays a progress bar of the download to stderr
+    """
+    return _resnet(Bottleneck, [3, 8, 36, 3], **kwargs)
+
+
+
+    
 def modify_resnets(model,rot_semi=False):
     # Modify attributs
     model.last_linear = model.fc
@@ -361,52 +478,62 @@ def modify_resnets(model,rot_semi=False):
 def resnet18(num_classes=1000, pretrained='imagenet', rot_semi=False):
     """Constructs a ResNet-18 model.
     """
-    model = models.resnet18(pretrained=False)
+    modified_model = _resnet18(rot_semi = rot_semi)
     if pretrained is not None:
+        model = models.resnet18(pretrained=False)
         settings = pretrained_settings['resnet18'][pretrained]
         model = load_pretrained(model, num_classes, settings)
-    model = modify_resnets(model,rot_semi)
-    return model
+        modified_model.copy_from_original_resnet(model)
+    # model = modify_resnets(model,rot_semi)
+    return modified_model
 
 def resnet34(num_classes=1000, pretrained='imagenet', rot_semi=False):
     """Constructs a ResNet-34 model.
     """
-    model = models.resnet34(pretrained=False)
+    modified_model = _resnet34(rot_semi = rot_semi)
     if pretrained is not None:
+        model = models.resnet34(pretrained=False)
         settings = pretrained_settings['resnet34'][pretrained]
         model = load_pretrained(model, num_classes, settings)
-    model = modify_resnets(model,rot_semi)
-    return model
+        modified_model.copy_from_original_resnet(model)
+    # model = modify_resnets(model,rot_semi)
+    return modified_model
 
 def resnet50(num_classes=1000, pretrained='imagenet', rot_semi=False):
     """Constructs a ResNet-50 model.
     """
-    model = models.resnet50(pretrained=False)
+    modified_model = _resnet50(rot_semi = rot_semi)
     if pretrained is not None:
+        model = models.resnet50(pretrained=False)
         settings = pretrained_settings['resnet50'][pretrained]
         model = load_pretrained(model, num_classes, settings)
-    model = modify_resnets(model,rot_semi)
-    return model
+        modified_model.copy_from_original_resnet(model)
+    # model = modify_resnets(model,rot_semi)
+    return modified_model
 
 def resnet101(num_classes=1000, pretrained='imagenet', rot_semi=False):
     """Constructs a ResNet-101 model.
     """
-    model = models.resnet101(pretrained=False)
+    modified_model = _resnet101(rot_semi = rot_semi)
     if pretrained is not None:
+        model = models.resnet101(pretrained=False)
         settings = pretrained_settings['resnet101'][pretrained]
         model = load_pretrained(model, num_classes, settings)
-    model = modify_resnets(model,rot_semi)
-    return model
+        modified_model.copy_from_original_resnet(model)
+    # model = modify_resnets(model,rot_semi)
+    return modified_model
 
 def resnet152(num_classes=1000, pretrained='imagenet', rot_semi=False):
     """Constructs a ResNet-152 model.
     """
-    model = models.resnet152(pretrained=False)
+    modified_model = _resnet152(rot_semi = rot_semi)
     if pretrained is not None:
+        model = models.resnet152(pretrained=False)
         settings = pretrained_settings['resnet152'][pretrained]
         model = load_pretrained(model, num_classes, settings)
-    model = modify_resnets(model,rot_semi)
-    return model
+        modified_model.copy_from_original_resnet(model)
+    # model = modify_resnets(model,rot_semi)
+    return modified_model
 
 ###############################################################
 # SqueezeNets

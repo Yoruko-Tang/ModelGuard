@@ -22,7 +22,7 @@ class AM(Blackbox):
 
 
     @classmethod
-    def from_modeldir(cls, model_dir, device=None, rand_fhat=False, use_adaptive=True, output_type='probs', **kwargs):
+    def from_modeldir(cls, model_dir, device=None, defense_level=0.99, rand_fhat=False, use_adaptive=True, output_type='probs', **kwargs):
         device = torch.device('cuda') if device is None else device
         param_path = osp.join(model_dir, 'params.json')
         with open(param_path) as jf:
@@ -66,7 +66,7 @@ class AM(Blackbox):
         blackbox = cls(model=model, model_def=model_def,
                        output_type=output_type,
                        dataset_name=dataset_name,
-                       defense_levels=0.99, device=device, num_classes=num_classes,
+                       defense_levels=defense_level, device=device, num_classes=num_classes,
                        rand_fhat=rand_fhat,
                        use_adaptive=use_adaptive)
         return blackbox
@@ -74,12 +74,15 @@ class AM(Blackbox):
     def __call__(self, x, T=1, return_origin=False, stat=False):
         with torch.no_grad():
             x = x.to(self.device)
-            y = self.model(x)
-            self.call_count += x.shape[0]
-            y = F.softmax(y/T, dim=1)
-        y_mod = self.defense_fn(x, y)
+            z_v = self.model(x)
+            y_v = F.softmax(z_v, dim=1)
+            if stat:
+                self.call_count += x.shape[0]
+            
+        y_prime = self.defense_fn(x, y_v)
+        
         if stat:
-            self.queries.append((y.cpu().detach().numpy(), y_mod.cpu().detach().numpy()))
+            self.queries.append((y_v.cpu().detach().numpy(), y_prime.cpu().detach().numpy()))
 
             if self.call_count % 1000 == 0:
                 # Dump queries
@@ -95,9 +98,9 @@ class AM(Blackbox):
                     af.write('\t'.join([str(c) for c in test_cols]) + '\n')
 
         if return_origin:
-            return y_mod, y 
+            return y_prime, y_v 
         else:
-            return y_mod
+            return y_prime
 
 
 def compute_hellinger(y_a, y_b):
@@ -143,7 +146,7 @@ class selectiveMisinformation:
         y_mis_dict = {}
         y_mis = y_mis.detach()
         if self.use_adaptive:
-            h = 1 / (1 + torch.exp(-10000 * (delta - probs_max.detach())))
+            h = 1 / (1 + torch.exp(-1000 * (delta - probs_max.detach())))
         else:
             h = delta * torch.ones_like(probs_max.detach())
 

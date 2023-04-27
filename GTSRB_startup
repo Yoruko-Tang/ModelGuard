@@ -172,16 +172,28 @@ out_dir=models/final_bb_dist/${p_v}-${f_v}/${policy}${policy_suffix}-${queryset}
 defense_args="rounding:${rounding};out_path:${out_dir}"
 
 ## reverse sigmoid
-# Output path to attacker's model
 strat=reverse_sigmoid
 beta=0.055
 gamma=0.2
+# Output path to attacker's model
 out_dir=models/final_bb_dist/${p_v}-${f_v}/${policy}${policy_suffix}-${queryset}-B${budget}/revsig/beta${beta}-gamma${gamma}-quantize${quantize_epsilon}
 defense_args="beta:${beta};gamma:${gamma};out_path:${out_dir}"
+
+## Adaptive Misinformation
+strat=am
+oe_lamb=1.0
+oeset=SVHN
+defense_lv=0.99
+# Output path to attacker's model
+out_dir=models/final_bb_dist/${p_v}-${f_v}/${policy}${policy_suffix}-${queryset}-B${budget}/am/tau${defense_lv}-quantize${quantize_epsilon}
+defense_args="defense_level:${defense_lv};out_path:${out_dir}"
 
 ### Execution commands
 # (defense) train an original (blackbox) model
 python defenses/victim/train.py ${p_v} ${f_v} -o ${vic_dir} -b 64 -d ${dev_id} -e 100 -w 4 --lr 0.01 --lr_step 30 --lr_gamma 0.5 --pretrained ${pretrained}
+
+# (defense) AM training
+python defenses/victim/train_admis.py ${p_v} ${f_v} -o ${vic_dir} -b 64 -d ${dev_id} -e 100 -w 4 --lr 0.01 --lr_step 30 --lr_gamma 0.5 --pretrained ${pretrained} --oe_lamb ${oe_lamb} -doe ${oeset}
 
 # (defense) evaluate original model with defense on testset
 python defenses/victim/eval.py ${vic_dir} ${strat} ${defense_args} --out_dir ${out_dir} --batch_size ${batch_size} -d ${dev_id}

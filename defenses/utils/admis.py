@@ -93,12 +93,6 @@ def train_step(
         inputs, targets = inputs.to(device), targets.to(device)
         batch = inputs.size(0)
 
-        if len(targets.size()) == 2:
-            # Labels could be a posterior probability distribution. Use argmax as a proxy.
-            target_probs, target_labels = targets.max(1)
-        else:
-            target_labels = targets
-
         if train_loader_OE is not None:
             try:
                 inputs_OE, _ = next(train_loader_OE_iter)
@@ -114,17 +108,6 @@ def train_step(
 
             _, predicted = outputs_all[:batch].max(1)
 
-            # Train Poisoning Model
-            outputs_poison = model_poison(inputs)
-            outputs_poison_softmax = F.softmax(outputs_poison, dim=1)
-            outputs_poison_comp = torch.log(1 - outputs_poison_softmax + 1e-7)
-            loss_poison = criterion(outputs_poison_comp, targets)
-            optimizer_poison.zero_grad()
-            loss_poison.backward()
-            optimizer_poison.step()
-            _, predicted_poison = outputs_poison[:batch].max(1)
-            correct_sm += predicted_poison.eq(target_labels).sum().item()
-            #'''
         else:
             outputs = model(inputs)
             _, predicted = outputs.max(1)
@@ -139,7 +122,11 @@ def train_step(
 
         train_loss += loss.item()
         total += targets.size(0)
-
+        if len(targets.size()) == 2:
+            # Labels could be a posterior probability distribution. Use argmax as a proxy.
+            target_probs, target_labels = targets.max(1)
+        else:
+            target_labels = targets
         correct += predicted.eq(target_labels).sum().item()
 
         prog = total / epoch_size
@@ -147,6 +134,18 @@ def train_step(
         acc = 100.0 * correct / total
         acc_sm = 100.0 * correct_sm / total
         train_loss_batch = train_loss / total
+
+        # Train Poisoning Model
+        if model_poison is not None:
+            outputs_poison = model_poison(inputs)
+            outputs_poison_softmax = F.softmax(outputs_poison, dim=1)
+            outputs_poison_comp = torch.log(1 - outputs_poison_softmax + 1e-7)
+            loss_poison = criterion(outputs_poison_comp, targets)
+            optimizer_poison.zero_grad()
+            loss_poison.backward()
+            optimizer_poison.step()
+            _, predicted_poison = outputs_poison[:batch].max(1)
+            correct_sm += predicted_poison.eq(target_labels).sum().item()
 
         if (batch_idx + 1) % log_interval == 0:
             if model_poison is None:
@@ -175,9 +174,6 @@ def train_step(
                         acc_sm,
                     )
                 )
-    t_end = time.time()
-    t_epoch = int(t_end - t_start)
-
 
     return train_loss_batch, acc
 
@@ -208,9 +204,6 @@ def test_step(
         for batch_idx, (inputs, targets) in enumerate(test_loader):
             inputs, targets = inputs.to(device), targets.to(device)
             outputs = model(inputs)
-            # print(inputs.size())
-            # print(outputs.size())
-            # print(targets.size())
             loss_clean = criterion(outputs, targets)
             nclasses = outputs.size(1)
 
@@ -224,9 +217,6 @@ def test_step(
                 inputs_OE, targets_OE = inputs_OE.to(device), targets_OE.to(device)
 
                 outputs_OE = model(inputs_OE)
-                # targets_OE = torch.ones_like(outputs_OE) / nclasses  # Uniform distribution for OE
-                # outputs_OE_softmax = F.softmax(outputs_OE, dim=1)
-                # loss_OE = CXE(outputs_OE_softmax, targets_OE)
                 loss_OE = CXE_unif(outputs_OE)
 
                 outputs_poison = model_poison(inputs)
@@ -288,7 +278,7 @@ def train_model(
     lr_gamma=0.1,
     resume=None,
     epochs=100,
-    log_interval=10,
+    log_interval=100,
     checkpoint_suffix="_oe",
     optimizer=None,
     scheduler=None,
@@ -316,7 +306,7 @@ def train_model(
 
     train_loader_OE = (
         DataLoader(
-            trainset_OE, batch_size=batch_size, shuffle=True, num_workers=num_workers
+            trainset_OE, batch_size=batch_size, shuffle=False, num_workers=num_workers
         )
         if trainset_OE is not None
         else None

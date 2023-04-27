@@ -35,10 +35,13 @@ def get_pretrainednet(modelname, modeltype, pretrained='imagenet', num_classes=1
         
     elif osp.exists(pretrained): # load a model from specified directory
         checkpoint_path = None
-        for file in os.listdir(pretrained):
-            if ".pth.tar" in file:
-                checkpoint_path=osp.join(pretrained,file)
-                break
+        if osp.isdir(pretrained):
+            for file in os.listdir(pretrained):
+                if ".pth.tar" in file:
+                    checkpoint_path=osp.join(pretrained,file)
+                    break
+        elif ".pth.tar" in pretrained:
+            checkpoint_path = pretrained
         if checkpoint_path is None:
             raise RuntimeError("Checkpoint does not exist in directory '{}'".format(pretrained))
 

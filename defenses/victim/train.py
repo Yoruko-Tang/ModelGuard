@@ -55,13 +55,7 @@ def main():
     parser.add_argument('--pretrained', type=str, help='Use pretrained network', default=None)
     parser.add_argument('--weighted_loss', action='store_true', help='Use a weighted loss', default=None)
 
-    # Args for Adaptive Misinformation with Outlier Exposure
-    parser.add_argument('--am_flag', action='store_true', help='Use Adaptive Misinformation defense', default=False)
-    parser.add_argument('--oe_lamb', type=float, default=0.5, metavar='LAMB',
-                        help='Lambda for Outlier Exposure')
-    parser.add_argument('-doe', '--dataset_oe', metavar='DS_OE_NAME', type=str, help='OE Dataset name',
-                        default='Indoor67')
-    
+
     args = parser.parse_args()
     params = vars(args)
 

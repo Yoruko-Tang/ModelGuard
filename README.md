@@ -83,11 +83,11 @@ After defining the general setup, you can generate the victim model if you have 
 python defenses/victim/train.py ${p_v} ${f_v} -o ${vic_dir} -b 64 -d ${dev_id} -e 100 -w 4 --lr 0.01 --lr_step 30 --lr_gamma 0.5 --pretrained ${pretrained}
 ```
 
-To train an original (blackbox) model with outlier exposure to run the adaptive misinformation attack, use the following command, add argument `--am_flag`:
+To train the model with outlier exposure to run the adaptive misinformation attack, use the following command, also run:
 
 ```shell
 # (defense) train an original (blackbox) model with outlier exposure
-python defenses/victim/train.py ${p_v} ${f_v} -o ${vic_dir} -b 64 -d ${dev_id} -e 100 -w 4 --lr 0.01 --lr_step 30 --lr_gamma 0.5 --pretrained ${pretrained} --am_flag --dataset_oe ${oeset}
+python defenses/victim/train_admis.py ${p_v} ${f_v} -o ${vic_dir} -b 32 -d ${dev_id} -e 100 -w 4 --lr 0.01 --lr_step 30 --lr_gamma 0.5 --pretrained ${pretrained}
 ``` 
 
 You will need to generate victim model twice, once original and once with outlier exposure. These two models will be used for all the experiments on this dataset.

@@ -115,14 +115,10 @@ def train_step(
             _, predicted = outputs_all[:batch].max(1)
 
             # Train Poisoning Model
-
-            _, targets_OE = torch.max(outputs_all[batch:].detach(), dim=1)
-            # Concatenate all inputs and targets (for ID and OOD inputs)
-            targets_all = torch.cat([targets, targets_OE], dim=0)
-            outputs_poison = model_poison(inputs_all)
+            outputs_poison = model_poison(inputs)
             outputs_poison_softmax = F.softmax(outputs_poison, dim=1)
             outputs_poison_comp = torch.log(1 - outputs_poison_softmax + 1e-7)
-            loss_poison = criterion(outputs_poison_comp, targets_all)
+            loss_poison = criterion(outputs_poison_comp, targets)
             optimizer_poison.zero_grad()
             loss_poison.backward()
             optimizer_poison.step()
@@ -152,39 +148,36 @@ def train_step(
         acc_sm = 100.0 * correct_sm / total
         train_loss_batch = train_loss / total
 
-        # if (batch_idx + 1) % log_interval == 0:
-
+        if (batch_idx + 1) % log_interval == 0:
+            if model_poison is None:
+                print(
+                    "[Train] Epoch: {:.2f} [{}/{} ({:.0f}%)]\tLoss: {:.6f}\tAccuracy: {:.1f}".format(
+                        exact_epoch,
+                        batch_idx * len(inputs),
+                        len(train_loader.dataset),
+                        100.0 * batch_idx / len(train_loader),
+                        loss.item(),
+                        acc,
+                    )
+                )
+            else:
+                print(
+                    "[Train] Epoch: {:.2f} [{}/{} ({:.0f}%)]\tLoss_CE: {:.6f}\tLoss_OE: {:.6f}\tloss_poison: {:.6f}\tLoss: {:.6f}\tAccuracy: {:.1f}\tAccuracy_SM: {:.1f}".format(
+                        exact_epoch,
+                        batch_idx * len(inputs),
+                        len(train_loader.dataset),
+                        100.0 * batch_idx / len(train_loader),
+                        loss_clean.item(),
+                        loss_OE.item(),
+                        loss_poison.item(),
+                        loss.item(),
+                        acc,
+                        acc_sm,
+                    )
+                )
     t_end = time.time()
     t_epoch = int(t_end - t_start)
-    acc = 100.0 * correct / total
-    if model_poison is None:
-        print(
-            "[Train] Epoch: {:.2f} [{}/{} ({:.0f}%)]\tLoss: {:.6f}\tAccuracy: {:.1f} time_epoch: {}s".format(
-                exact_epoch,
-                batch_idx * len(inputs),
-                len(train_loader.dataset),
-                100.0 * batch_idx / len(train_loader),
-                loss.item(),
-                acc,
-                t_epoch,
-            )
-        )
-    else:
-        print(
-            "[Train] Epoch: {:.2f} [{}/{} ({:.0f}%)]\tLoss_CE: {:.6f}\tLoss_OE: {:.6f}\tloss_poison: {:.6f}\tLoss: {:.6f}\tAccuracy: {:.1f}\tAccuracy_SM: {:.1f} time_epoch: {}s".format(
-                exact_epoch,
-                batch_idx * len(inputs),
-                len(train_loader.dataset),
-                100.0 * batch_idx / len(train_loader),
-                loss_clean.item(),
-                loss_OE.item(),
-                loss_poison.item(),
-                loss.item(),
-                acc,
-                acc_sm,
-                t_epoch,
-            )
-        )
+
 
     return train_loss_batch, acc
 
@@ -295,7 +288,7 @@ def train_model(
     lr_gamma=0.1,
     resume=None,
     epochs=100,
-    log_interval=100,
+    log_interval=10,
     checkpoint_suffix="_oe",
     optimizer=None,
     scheduler=None,
@@ -323,7 +316,7 @@ def train_model(
 
     train_loader_OE = (
         DataLoader(
-            trainset_OE, batch_size=batch_size, shuffle=False, num_workers=num_workers
+            trainset_OE, batch_size=batch_size, shuffle=True, num_workers=num_workers
         )
         if trainset_OE is not None
         else None
@@ -404,9 +397,9 @@ def train_model(
             model_poison=model_poison,
             optimizer_poison=optimizer_poison,
         )
-        scheduler.step(epoch)
+        scheduler.step()
         if scheduler_poison is not None:
-            scheduler_poison.step(epoch)
+            scheduler_poison.step()
         best_train_acc = max(best_train_acc, train_acc)
 
         if test_loader is not None:

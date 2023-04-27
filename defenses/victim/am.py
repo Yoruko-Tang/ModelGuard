@@ -6,6 +6,7 @@ import torch.nn.functional as F
 import defenses.models.zoo as zoo
 from defenses import datasets
 from defenses.victim import Blackbox
+import pickle
 
 class AM(Blackbox):
     def __init__(self, model, model_def, defense_levels=0.99, device=None, num_classes=10, rand_fhat=10, use_adaptive=True, *args, **kwargs):
@@ -15,7 +16,6 @@ class AM(Blackbox):
         self.device = torch.device('cuda') if device is None else device
         self.model = model.to(device)
         self.model.eval()
-        self.__call_count = 0
         model_def = model_def.to(device)
         self.num_classes = num_classes
         self.defense_fn = selectiveMisinformation(model_def, defense_levels, self.num_classes, rand_fhat, use_adaptive)
@@ -71,19 +71,31 @@ class AM(Blackbox):
                        use_adaptive=use_adaptive)
         return blackbox
 
-    def __call__(self, x, T=1, return_origin=False):
+    def __call__(self, x, T=1, return_origin=False, stat=False):
         with torch.no_grad():
             x = x.to(self.device)
             y = self.model(x)
-            self.__call_count += x.shape[0]
+            self.call_count += x.shape[0]
             y = F.softmax(y/T, dim=1)
         y_mod = self.defense_fn(x, y)
+        if stat:
+            self.queries.append((y.cpu().detach().numpy(), y_mod.cpu().detach().numpy()))
 
-        # create a placeholder y_v
-        y_v = torch.zeros_like(y_mod) #CHECK THIS
+            if self.call_count % 1000 == 0:
+                # Dump queries
+                query_out_path = osp.join(self.out_path, 'queries.pickle')
+                with open(query_out_path, 'wb') as wf:
+                    pickle.dump(self.queries, wf)
+
+                l1_max, l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std = self.calc_query_distances(self.queries)
+
+                # Logs
+                with open(self.log_path, 'a') as af:
+                    test_cols = [self.call_count, l1_max, l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std]
+                    af.write('\t'.join([str(c) for c in test_cols]) + '\n')
 
         if return_origin:
-            return y_mod, y_v #CHECK THIS
+            return y_mod, y 
         else:
             return y_mod
 

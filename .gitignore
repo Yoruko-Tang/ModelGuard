@@ -2,7 +2,7 @@
 data/
 models/
 run*.py
-trash*.py
+trash*
 .vscode/
 
 # Byte-compiled / optimized / DLL files

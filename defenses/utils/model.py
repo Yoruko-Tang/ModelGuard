@@ -163,7 +163,7 @@ def semi_train_step(model, train_loader, semi_loader, semi_train_weight, criteri
         semi_train_loss_batch = semi_train_loss / total
 
         if (batch_idx + 1) % log_interval == 0:
-            print('[Train] Epoch: {:.2f} [{}/{} ({:.0f}%)]\tLoss: {:.6f}\tSemi Loss: {:.6f}\tAccuracy: {:.1f} ({}/{})'.format(
+            print('[Train] Epoch: {:.2f} [{}/{} ({:.0f}%)]\tLoss: {:.6f}\tSemi Loss: {:.6f}\tAccuracy: {:.2f} ({}/{})'.format(
                 exact_epoch, batch_idx * len(inputs), len(train_loader.dataset), 100. * batch_idx / len(train_loader),
                 loss.item(), semi_loss.item(), acc, correct, total))
 
@@ -177,12 +177,13 @@ def semi_train_step(model, train_loader, semi_loader, semi_train_weight, criteri
 
     return train_loss_batch, semi_train_loss_batch, acc
 
-def test_step(model, test_loader, criterion, device, epoch=0., silent=False, gt_model=None,writer=None):
+def test_step(model, test_loader, criterion, device, epoch=0., silent=False, gt_model=None,writer=None, min_max_values=False):
     model.eval()
     test_loss = 0.
     correct = 0
     total = 0
     fidelity_correct = 0
+    max_values = []
     t_start = time.time()
 
     with torch.no_grad():
@@ -193,9 +194,10 @@ def test_step(model, test_loader, criterion, device, epoch=0., silent=False, gt_
             nclasses = outputs.size(1)
 
             test_loss += loss.item()
-            _, predicted = outputs.max(1)
+            max_pred, predicted = outputs.max(1)
             total += targets.size(0)
             correct += predicted.eq(targets).sum().item()
+            max_values.append(max_pred.detach())
 
             if gt_model is not None:
                 _,gt_pred = gt_model(inputs).max(1)
@@ -207,10 +209,14 @@ def test_step(model, test_loader, criterion, device, epoch=0., silent=False, gt_
     acc = 100. * correct / total
     test_loss /= total
     fidelity = 100. * fidelity_correct/total
+    max_values = torch.cat(max_values)
+    min_max_value = torch.min(max_values).item()
 
     if not silent:
-        print('[Test]  Epoch: {}\tLoss: {:.6f}\tAcc: {:.1f}% ({}/{})\tfidelity: {:.1f}% ({}/{})'.format(
+        print('[Test]  Epoch: {}\tLoss: {:.6f}\tAcc: {:.2f}% ({}/{})\tfidelity: {:.2f}% ({}/{})'.format(
                             epoch, test_loss, acc,correct, total,fidelity,fidelity_correct,total))
+        if min_max_values:
+            print("Minimum max prediciton: {:.6f}".format(min_max_value))
 
     if writer is not None:
         writer.add_scalar('Loss/test', test_loss, epoch)

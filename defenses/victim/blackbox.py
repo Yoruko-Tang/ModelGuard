@@ -77,19 +77,17 @@ class Blackbox(object):
         modelfamily = datasets.dataset_to_modelfamily[dataset_name]
 
         # Instantiate the model and load weights
-        model = zoo.get_net(model_arch, modelfamily, pretrained=model_dir, num_classes=num_classes)
+        model = zoo.get_net(model_arch, modelfamily, num_classes=num_classes)
         model = model.to(device)
 
-        # # Load weights
-        # checkpoint_path = osp.join(model_dir, 'model_best.pth.tar')
-        # if not osp.exists(checkpoint_path):
-        #     checkpoint_path = osp.join(model_dir, 'checkpoint.pth.tar')
-        # print("=> loading checkpoint '{}'".format(checkpoint_path))
-        # checkpoint = torch.load(checkpoint_path)
-        # epoch = checkpoint['epoch']
-        # best_test_acc = checkpoint['best_acc']
-        # model.load_state_dict(checkpoint['state_dict'])
-        # print("=> loaded checkpoint (epoch {}, acc={:.2f})".format(epoch, best_test_acc))
+        # Load weights
+        checkpoint_path = osp.join(model_dir, 'checkpoint.pth.tar')
+        print("=> loading checkpoint '{}'".format(checkpoint_path))
+        checkpoint = torch.load(checkpoint_path)
+        epoch = checkpoint['epoch']
+        best_test_acc = checkpoint['best_acc']
+        model.load_state_dict(checkpoint['state_dict'])
+        print("=> loaded checkpoint (epoch {}, acc={:.2f})".format(epoch, best_test_acc))
 
         # print(cls, model, device, output_type, kwargs)
         blackbox = cls(model=model, device=device, output_type=output_type, dataset_name=dataset_name,

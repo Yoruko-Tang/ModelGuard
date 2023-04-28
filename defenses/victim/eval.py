@@ -106,7 +106,7 @@ def main():
     epoch = bbox_params['epochs']
     testloader = DataLoader(testset, num_workers=nworkers, shuffle=False, batch_size=batch_size)
     test_loss, test_acc, _ = model_utils.test_step(blackbox, testloader, nn.CrossEntropyLoss(), device,
-                                                epoch=epoch)
+                                                epoch=epoch,min_max_values=True)
 
     log_out_path = osp.join(out_path, 'bboxeval.{}.log.tsv'.format(len(testset)))
     with open(log_out_path, 'w') as wf:

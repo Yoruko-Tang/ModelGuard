@@ -3,7 +3,7 @@ python defenses/victim/train.py CUBS200 resnet50 --out_path models/victim/CUBS20
 
 ################################ CUB200 ################################
 ### If you have multiple GPUs on the machine, use this to select the specific GPU
-dev_id=1
+dev_id=3
 ### p_v = victim model dataset
 p_v=CUBS200
 ### f_v = architecture of victim model
@@ -181,7 +181,7 @@ defense_args="beta:${beta};gamma:${gamma};out_path:${out_dir}"
 strat=am
 oe_lamb=1.0
 oeset=Indoor67
-defense_lv=0.35
+defense_lv=0.3
 # Output path to attacker's model
 out_dir=models/final_bb_dist/${p_v}-${f_v}/${policy}${policy_suffix}-${queryset}-B${budget}/am/tau${defense_lv}-quantize${quantize_epsilon}
 defense_args="defense_level:${defense_lv};out_path:${out_dir}"

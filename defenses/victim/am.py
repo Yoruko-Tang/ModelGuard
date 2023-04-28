@@ -9,17 +9,15 @@ from defenses.victim import Blackbox
 import pickle
 
 class AM(Blackbox):
-    def __init__(self, model, model_def, defense_levels=0.99, device=None, num_classes=10, rand_fhat=10, use_adaptive=True, *args, **kwargs):
+    def __init__(self, model, model_def, defense_levels=0.99, rand_fhat=False, use_adaptive=True, *args, **kwargs):
         super().__init__(model=model, *args, **kwargs)
         print('=> AM ({})'.format([self.dataset_name, defense_levels]))
 
-        self.device = torch.device('cuda') if device is None else device
-        self.model = model.to(device)
-        self.model.eval()
-        model_def = model_def.to(device)
-        self.num_classes = num_classes
         self.require_xinfo = True
+        model_def = model_def.to(self.device)
+        model_def.eval()
         self.defense_fn = selectiveMisinformation(model_def, defense_levels, self.num_classes, rand_fhat, use_adaptive)
+        # print(self.out_path)
 
 
     @classmethod
@@ -63,14 +61,12 @@ class AM(Blackbox):
         )
 
         blackbox = cls(model=model, model_def=model_def,
-                       output_type=output_type,
-                       dataset_name=dataset_name,
-                       defense_levels=defense_level, device=device, num_classes=num_classes,
-                       rand_fhat=rand_fhat,
-                       use_adaptive=use_adaptive)
+                       output_type=output_type, dataset_name=dataset_name,
+                       modelfamily=modelfamily, model_arch=model_arch, num_classes=num_classes, model_dir=model_dir,
+                       defense_levels=defense_level, device=device, rand_fhat=rand_fhat, use_adaptive=use_adaptive,**kwargs)
         return blackbox
 
-    def __call__(self, x, T=1, return_origin=False, stat=False):
+    def __call__(self, x, stat=True, return_origin=False):
         with torch.no_grad():
             x = x.to(self.device)
             z_v = self.model(x)

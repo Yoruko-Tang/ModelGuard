@@ -134,7 +134,7 @@ def main():
     
     # Store arguments
     params['created_on'] = str(datetime.now())
-    params_out_path = osp.join(out_path, 'params.json')
+    params_out_path = osp.join(out_path, 'params_oe.json')
     with open(params_out_path, 'w') as jf:
         json.dump(params, jf, indent=True)
 

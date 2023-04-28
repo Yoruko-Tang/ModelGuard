@@ -18,6 +18,7 @@ class AM(Blackbox):
         self.model.eval()
         model_def = model_def.to(device)
         self.num_classes = num_classes
+        self.require_xinfo = True
         self.defense_fn = selectiveMisinformation(model_def, defense_levels, self.num_classes, rand_fhat, use_adaptive)
 
 
@@ -101,6 +102,13 @@ class AM(Blackbox):
             return y_prime, y_v 
         else:
             return y_prime
+        
+    def get_yprime(self,y,x_info=None):
+        return self.defense_fn.get_yprime(y,x_info)
+
+    def get_xinfo(self,x):
+        return self.defense_fn.get_xinfo(x)
+
 
 
 def compute_hellinger(y_a, y_b):
@@ -143,7 +151,7 @@ class selectiveMisinformation:
         y_mis = F.softmax(y_mis, dim=1)
         probs_mis_max, probs_mis_max_index = torch.max(y_mis, dim=1)  # batch
         self.mis_correct_count += (probs_mis_max_index == probs_max_index).sum().item()
-        y_mis_dict = {}
+
         y_mis = y_mis.detach()
         if self.use_adaptive:
             h = 1 / (1 + torch.exp(-1000 * (delta - probs_max.detach())))
@@ -189,6 +197,32 @@ class selectiveMisinformation:
         self.input_count = 0
         self.mis_correct_count = 0
         self.correct_class_rank = np.zeros(self.num_classes)
+
+    def get_yprime(self,y,x_info=None):
+        y_mis = x_info
+        if y_mis is None:
+            y_mis = torch.rand_like(y)
+            y_mis = y_mis/torch.sum(y_mis,dim=1,keepdim=True)
+        probs = y  # batch x 10
+        delta = self.delta_list
+        probs_max, probs_max_index = torch.max(probs, dim=1)  # batch
+        
+        if len(y_mis)!=len(y):
+            assert len(y_mis)==1, "y_mis dose not in shape of y and y_mis has size larger than 1 at dim 0"
+            y_mis = y_mis.squeeze()
+        if self.use_adaptive:
+            h = 1 / (1 + torch.exp(-1000 * (delta - probs_max.detach())))
+        else:
+            h = delta * torch.ones_like(probs_max.detach())
+
+        h = h.unsqueeze(dim=1).float()
+        y_mis_dict = ((1.0 - h) * y) + (h * y_mis.float())
+        return y_mis_dict
+    
+    def get_xinfo(self,x):
+        return self.model_mis(x).detach()
+        
+
 
 
 class noDefense:

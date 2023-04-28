@@ -44,9 +44,7 @@ class AM(Blackbox):
         model = model.to(device)
 
         # Load Weights
-        checkpoint_path = osp.join(model_dir, 'model_best.pth.tar')
-        if not osp.exists(checkpoint_path):
-            checkpoint_path = osp.join(model_dir, "checkpoint.pth.tar")
+        checkpoint_path = osp.join(model_dir, "checkpoint_oe.pth.tar")
         print("=> loading checkpoint '{}'".format(checkpoint_path))
         checkpoint = torch.load(checkpoint_path)
         epoch = checkpoint["epoch"]

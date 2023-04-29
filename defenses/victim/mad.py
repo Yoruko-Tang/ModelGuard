@@ -77,6 +77,8 @@ class MAD(Blackbox):
         # Which oracle to use
         self.oracle = oracle
         assert self.oracle in ['extreme', 'random', 'argmin', 'argmax', 'lp_argmax','lp_extreme']
+        if self.oracle in ['extreme', 'random', 'argmin','lp_extreme']:
+            self.top1_preserve = False
 
         # Which algorithm to use to optimize
         self.optim = optim

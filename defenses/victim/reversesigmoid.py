@@ -29,6 +29,8 @@ class ReverseSigmoid(Blackbox):
         self.beta = beta
         self.gamma = gamma
 
+        self.top1_preserve = False
+
         
 
     @staticmethod

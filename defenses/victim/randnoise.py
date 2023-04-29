@@ -32,6 +32,8 @@ class RandomNoise(Blackbox):
         assert strat in ['uniform', 'gaussian']
         self.strat = strat
 
+        self.top1_preserve = False
+
 
 
     @staticmethod

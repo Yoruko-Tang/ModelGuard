@@ -14,6 +14,7 @@ class AM(Blackbox):
         print('=> AM ({})'.format([self.dataset_name, defense_levels]))
 
         self.require_xinfo = True
+        self.top1_preserve = False
         model_def = model_def.to(self.device)
         model_def.eval()
         self.defense_fn = selectiveMisinformation(model_def, defense_levels, self.num_classes, rand_fhat, use_adaptive)
@@ -101,6 +102,7 @@ class AM(Blackbox):
         return self.defense_fn.get_yprime(y,x_info)
 
     def get_xinfo(self,x):
+        x = x.to(self.device)
         return self.defense_fn.get_xinfo(x)
 
 
@@ -197,9 +199,9 @@ class selectiveMisinformation:
         if y_mis is None:
             y_mis = torch.rand_like(y)
             y_mis = y_mis/torch.sum(y_mis,dim=1,keepdim=True)
-        probs = y  # batch x 10
+        probs = y  
         delta = self.delta_list
-        probs_max, probs_max_index = torch.max(probs, dim=1)  # batch
+        probs_max, probs_max_index = torch.max(probs, dim=1)  
         
         if len(y_mis)!=len(y):
             assert len(y_mis)==1, "y_mis dose not in shape of y and y_mis has size larger than 1 at dim 0"
@@ -214,7 +216,9 @@ class selectiveMisinformation:
         return y_mis_dict
     
     def get_xinfo(self,x):
-        return self.model_mis(x).detach()
+        y_mis = self.model_mis(x)
+        y_mis = F.softmax(y_mis, dim=1).detach()
+        return y_mis
         
 
 

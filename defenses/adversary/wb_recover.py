@@ -55,6 +55,7 @@ class Table_Recover():
         self.batch_size = batch_size
         self.epsilon=epsilon
         self.perturb_norm = perturb_norm
+        self.top1_recover = self.blackbox.top1_preserve
         self.recover_mean=recover_mean
         self.recover_norm = recover_norm
         self.tolerance = tolerance
@@ -120,7 +121,8 @@ class Table_Recover():
             self.true_label_sample,self.perturbed_label_sample = self.true_label_sample.cpu(),self.perturbed_label_sample.cpu()
 
         if not self.recover_nn:
-            self.true_top1 = torch.argmax(self.true_label_sample,dim=1).to(self.device)
+            if self.top1_recover:
+                self.true_top1 = torch.argmax(self.true_label_sample,dim=1).to(self.device)
             self.log_path = osp.join(self.blackbox.out_path, 'recover_distance{}.log.tsv'.format(self.blackbox.log_prefix))
             self.logger = csv.writer(open(self.log_path,'w'),delimiter='\t')
             self.logger.writerow(['call count','recover distance mean', 'recover distance std'])
@@ -221,6 +223,14 @@ class Table_Recover():
                 for start_idx in range(0,len(true_label_i),batch_size):
                     end_idx = min([start_idx+batch_size,len(true_label_i)])
                     perturbed_label = blackbox.get_yprime(true_label_i[start_idx:end_idx,:],x_info = x_info)
+                    # y_prime_dis = torch.cat([torch.norm(perturbed_label-true_label_i[start_idx:end_idx,:],p=2,dim=1,keepdim=True),torch.norm(perturbed_label-x_info.reshape([1,-1]),p=2,dim=1,keepdim=True)],dim=1)
+                    # y_prime_dis,_ = torch.min(y_prime_dis,dim=1)
+                    # print(torch.norm(perturbed_label-true_label_i[start_idx:end_idx,:],p=2,dim=1,keepdim=True))
+                    # print(torch.norm(perturbed_label-x_info.reshape([1,-1]),p=2,dim=1,keepdim=True))
+                    # print(y_prime_dis)
+                    # max_val,_ = torch.max(true_label_i[start_idx:end_idx,:],dim=1)
+                    # print(max_val)
+                    # input()
                     perturbed_label_sample.append(perturbed_label.detach().cpu())
                     if count is not None:
                         count.value += len(perturbed_label)
@@ -328,8 +338,12 @@ class Table_Recover():
                 yprime_c = yprime[top1_label==c]
                 if len(yprime_c)==0:
                     continue
-                perturbed_label_filtered = self.perturbed_label_sample[self.true_top1==c,:]
-                true_label_filtered = self.true_label_sample[self.true_top1==c,:]
+                if self.top1_recover: # search for the optimal recovery in the same top-1 labels only for efficiency
+                    perturbed_label_filtered = self.perturbed_label_sample[self.true_top1==c,:]
+                    true_label_filtered = self.true_label_sample[self.true_top1==c,:]
+                else:
+                    perturbed_label_filtered = self.perturbed_label_sample
+                    true_label_filtered = self.true_label_sample
                 perturbed_label_filtered,true_label_filtered = perturbed_label_filtered.to(self.device),true_label_filtered.to(self.device)
                 for i in range(len(yprime_c)):
                     # return the true lable with the same top-1 label and minimal perturbed distance

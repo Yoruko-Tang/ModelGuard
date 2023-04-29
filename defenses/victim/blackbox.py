@@ -26,6 +26,7 @@ class Blackbox(object):
         self.topk = topk
         self.rounding = rounding
         self.require_xinfo = False
+        self.top1_preserve = True # whether the perturbed labels always preserve the top1 accuracy
 
         self.dataset_name = dataset_name
         self.modelfamily = modelfamily

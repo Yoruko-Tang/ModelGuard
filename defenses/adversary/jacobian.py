@@ -31,7 +31,7 @@ import defenses.config as cfg
 import defenses.models.zoo as zoo
 
 from defenses.victim import *
-
+from wb_recover import Table_Recover
 
 
 
@@ -46,8 +46,9 @@ class JacobianAdversary:
     2. (JB-{topk, self}) "PRADA: Protecting against DNN Model Stealing Attacks", Juuti et al., Euro S&P '19
     """
     def __init__(self, blackbox, budget, model_adv_name, model_adv_pretrained, modelfamily, seedset, testset, device,
-                 out_dir, batch_size=cfg.DEFAULT_BATCH_SIZE, train_epochs=20, kappa=400, tau=None, rho=6, sigma=-1,
-                 query_batch_size=64, aug_strategy='jbda',epsilon=0.1,T=8, useprobs=True, final_train_epochs=100):
+                 out_dir, batch_size=cfg.DEFAULT_BATCH_SIZE, train_epochs=30, kappa=400, tau=None, rho=6, sigma=-1,
+                 query_batch_size=32, aug_strategy='jbda',epsilon=0.1,T=8, useprobs=True, final_train_epochs=30,
+                 label_recover=None):
         self.blackbox = blackbox
         self.budget = budget
         self.model_adv_name = model_adv_name
@@ -79,25 +80,46 @@ class JacobianAdversary:
 
         self.accuracies = []  # Track test accuracies over time
         self.useprobs = useprobs
+        self.label_recover = label_recover
+        if self.label_recover is not None:
+            self.log_path = self.blackbox.log_path.replace('distance','gtdistance')
+            if not osp.exists(self.log_path):
+                with open(self.log_path, 'w') as wf:
+                    columns = ['transferset size', 'l1_max', 'l1_mean', 'l1_std', 'l2_mean', 'l2_std', 'kl_mean', 'kl_std']
+                    wf.write('\t'.join(columns) + '\n')
+
 
         # -------------------------- Initialize seed data
         print('=> Obtaining predictions over {} seed samples using strategy {}'.format(len(self.seedset),
                                                                                        self.aug_strategy))
         Dx = torch.cat([self.seedset[i][0].unsqueeze(0) for i in range(len(self.seedset))])
         Dy = []
+        self.Y_true = []
 
         # Populate Dy
         with torch.no_grad():
             for inputs, in DataLoader(TensorDataset(Dx), batch_size=self.query_batch_size):
                 inputs = inputs.to(self.device)
-                outputs = blackbox(inputs).cpu()
+                outputs,y_t_true = blackbox(inputs,return_origin=True)
                 if not self.useprobs:
                     labels = torch.argmax(outputs, dim=1)
                     labels_onehot = make_one_hot(labels, outputs.shape[1])
                     outputs = labels_onehot
                 Dy.append(outputs)
-        # Dy = torch.tensor(Dy)
+                self.Y_true.append(y_t_true.detach().cpu())
         Dy = torch.cat(Dy)
+        self.Y_true = torch.cat(self.Y_true,dim=0)
+        if self.label_recover is not None:
+            print("=> Start to recover the clean labels!")
+            self.label_recover.generate_lookup_table(load_path=osp.join(self.blackbox.out_path, 'recover_table.pickle'),
+                                                     estimation_set = [Dx,self.Y_true],table_size=int(len(Dy)/self.budget*self.label_recover.table_size))
+            with tqdm(total=len(Dy)) as pbar:
+                Dy = self.label_recover(Dy,pbar) # recover the whole transfer set together to reduce cpu-gpu convert
+                Dy = Dy.to(self.Y_true)
+                l1_max, l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std = self.blackbox.calc_query_distances([[self.Y_true,Dy],])
+                with open(self.log_path, 'a') as af:
+                    test_cols = [len(self.Y_true), l1_max, l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std]
+                    af.write('\t'.join([str(c) for c in test_cols]) + '\n')
 
         # TensorDataset D
         self.D = TensorDataset(Dx, Dy)
@@ -106,15 +128,8 @@ class JacobianAdversary:
         self.model_adv = zoo.get_net(self.model_adv_name, self.modelfamily, self.model_adv_pretrained,
                                 num_classes=self.num_classes)
         self.model_adv = self.model_adv.to(self.device)
-        # model_adv = model_utils.train_model(model_adv, self.D, self.out_dir, num_workers=10,
-        #                                     checkpoint_suffix='.{}'.format(self.blackbox.call_count),
-        #                                     device=self.device, epochs=1,
-        #                                     log_interval=50, lr=0.01, momentum=0.9, batch_size=self.batch_size,
-        #                                     lr_gamma=0.1, testset=self.testset,
-        #                                     criterion_train=model_utils.soft_cross_entropy)
-
-
-    def get_transferset(self):
+        
+    def get_transferset(self,**opt_kargs):
         """
         :return:
         """
@@ -130,10 +145,8 @@ class JacobianAdversary:
             # -------------------------- 1. Train model on D
             self.model_adv = model_utils.train_model(self.model_adv, self.D, self.out_dir, num_workers=10,
                                                 checkpoint_suffix='.{}'.format(self.blackbox.call_count),
-                                                device=self.device, epochs=self.train_epochs, log_interval=50, lr=0.1,
-                                                momentum=0.9, batch_size=self.batch_size, lr_gamma=0.1,lr_step=10,
-                                                testset=self.testset, criterion_train=model_utils.soft_cross_entropy,
-                                                gt_model=self.blackbox.model)
+                                                device=self.device, testset=self.testset, criterion_train=model_utils.soft_cross_entropy,
+                                                gt_model=self.blackbox.model,**opt_kargs)
 
             # -------------------------- 2. Evaluate model
             # _, acc = model_utils.test_step(model_adv, self.testloader, nn.CrossEntropyLoss(reduction='mean'),
@@ -158,10 +171,8 @@ class JacobianAdversary:
                 self.model_adv = self.model_adv.to(self.device)
                 self.model_adv = model_utils.train_model(self.model_adv, self.D, self.out_dir, num_workers=10,
                                                     checkpoint_suffix='.{}'.format(self.blackbox.call_count),
-                                                    device=self.device, epochs=self.final_train_epochs,
-                                                    log_interval=50, lr=0.01, momentum=0.9, batch_size=self.batch_size,
-                                                    lr_gamma=0.1, lr_step=30, testset=self.testset,
-                                                    criterion_train=model_utils.soft_cross_entropy,gt_model=self.blackbox.model)
+                                                    device=self.device, testset=self.testset, criterion_train=model_utils.soft_cross_entropy,
+                                                    gt_model=self.blackbox.model,**opt_kargs)
                 break
 
 
@@ -205,29 +216,18 @@ class JacobianAdversary:
         loader = DataLoader(D_sampled, batch_size=self.query_batch_size, shuffle=False)
         X_aug = []
         Y_aug = []
+        Y_true = []
         for i, (X, Y) in enumerate(loader):
-            # start_idx = i * self.query_batch_size
-            # end_idx = min(start_idx + self.query_batch_size, len(D_sampled))
-            # # A simple check to ensure we are overwriting the correct input-outputs
-            # assert Y.sum() == D_sampled.tensors[1][start_idx:end_idx].sum(), '[{}] {} != {}'.format(i, Y.sum(),
-            #                                                                                         D_sampled.tensors[
-            #                                                                                             1][
-            #                                                                                         start_idx:end_idx].sum())
-            # assert X.sum() == D_sampled.tensors[0][start_idx:end_idx].sum(), '[{}] {} != {}'.format(i, X.sum(),
-            #                                                                                         D_sampled.tensors[
-            #                                                                                             0][
-            #                                                                                         start_idx:end_idx].sum())
-
             # Get augmented inputs
             X, Y = X.to(self.device), Y.to(self.device)
             delta_i = self.fgsm_untargeted(model_adv, X, Y.argmax(dim=1), device=self.device, epsilon=step_size)
             # Get corrensponding outputs from blackbox
             if self.aug_strategy == 'jbda':
-                Y_i = self.blackbox(X + delta_i)
+                Y_i,y_t_true = self.blackbox(X + delta_i,return_origin=True)
                 X_aug.append((X + delta_i).detach().cpu().clone())
                 #D_sampled.tensors[0][start_idx:end_idx] = (X + delta_i).detach().cpu()
             elif self.aug_strategy == 'jbself':
-                Y_i = self.blackbox(X - delta_i)
+                Y_i,y_t_true = self.blackbox(X - delta_i,return_origin=True)
                 X_aug.append((X - delta_i).detach().cpu().clone())
                 # D_sampled.tensors[0][start_idx:end_idx] = (X - delta_i).detach().cpu()
             else:
@@ -241,9 +241,27 @@ class JacobianAdversary:
             # Rewrite D_sampled
             #D_sampled.tensors[1][start_idx:end_idx] = Y_i.detach().cpu()
             Y_aug.append(Y_i.detach().cpu().clone())
+            Y_true.append(y_t_true.detach().cpu())
         
         X_aug = torch.cat(X_aug, dim=0)
         Y_aug = torch.cat(Y_aug, dim=0)
+        Y_true = torch.cat(Y_true,dim=0)
+        self.Y_true = torch.cat([self.Y_true,Y_true],dim=0)
+
+        if self.label_recover is not None:
+            print("=> Start to recover the clean labels!")
+            self.label_recover.generate_lookup_table(load_path=osp.join(self.blackbox.out_path, 'recover_table.pickle'),
+                                                    estimation_set = [X_aug,Y_true],
+                                                    table_size=int(len(self.Y_true)/self.budget*self.label_recover.table_size))
+            with tqdm(total=len(Y_aug)) as pbar:
+                Y_aug = self.label_recover(Y_aug,pbar) # recover the whole transfer set together to reduce cpu-gpu convert
+                Y_aug = Y_aug.to(self.Y_true)
+                l1_max, l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std = self.blackbox.calc_query_distances([[Y_true,Y_aug],])
+                with open(self.log_path, 'a') as af:
+                    test_cols = [len(self.Y_true), l1_max, l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std]
+                    af.write('\t'.join([str(c) for c in test_cols]) + '\n')
+
+
 
         Dx_augmented = torch.cat([self.D.tensors[0], X_aug])[:self.budget]
         Dy_augmented = torch.cat([self.D.tensors[1], Y_aug])[:self.budget]
@@ -278,6 +296,7 @@ class JacobianAdversary:
         loader = DataLoader(D_sampled, batch_size=self.query_batch_size, shuffle=False)
         X_aug = []
         Y_aug = []
+        Y_true = []
         for i, (X, Y) in enumerate(loader):
             # assert X.shape[0] == Y.shape[0] == 1, 'Only supports batch_size = 1'
             X, Y = X.to(self.device), Y.to(self.device)
@@ -290,7 +309,7 @@ class JacobianAdversary:
             for c in range(self.topk):
                 delta_i = self.pgd_linf_targ(model_adv, X, Y_pred_sorted[:,c], epsilon=step_size, alpha=step_size*1.85/T,num_iter=T,
                                              device=self.device)
-                Y_i = self.blackbox(X + delta_i)
+                Y_i,y_t_true = self.blackbox(X + delta_i,return_origin=True)
 
                 if not self.useprobs:
                     labels = torch.argmax(Y_i, dim=1)
@@ -299,12 +318,29 @@ class JacobianAdversary:
 
                 X_aug.append((X + delta_i).detach().cpu().clone())
                 Y_aug.append(Y_i.detach().cpu().clone())
+                Y_true.append(y_t_true.detach().cpu())
 
             if self.blackbox.call_count >= self.budget:
                 break
 
         X_aug = torch.cat(X_aug, dim=0)
         Y_aug = torch.cat(Y_aug, dim=0)
+        Y_true = torch.cat(Y_true,dim=0)
+        self.Y_true = torch.cat(self.Y_true,Y_true,dim=0)
+
+        if self.label_recover is not None:
+            print("=> Start to recover the clean labels!")
+            self.label_recover.generate_lookup_table(load_path=osp.join(self.blackbox.out_path, 'recover_table.pickle'),
+                                                    estimation_set = [X_aug,Y_true],
+                                                    table_size=int(len(self.Y_true)/self.budget*self.label_recover.table_size))
+            with tqdm(total=len(Y_aug)) as pbar:
+                Y_aug = self.label_recover(Y_aug,pbar) # recover the whole transfer set together to reduce cpu-gpu convert
+                Y_aug = Y_aug.to(self.Y_true)
+                l1_max, l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std = self.blackbox.calc_query_distances([[Y_true,Y_aug],])
+                with open(self.log_path, 'a') as af:
+                    test_cols = [len(self.Y_true), l1_max, l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std]
+                    af.write('\t'.join([str(c) for c in test_cols]) + '\n')
+
 
         Dx_augmented = torch.cat([self.D.tensors[0], X_aug])[:self.budget]
         Dy_augmented = torch.cat([self.D.tensors[1], Y_aug])[:self.budget]
@@ -363,12 +399,20 @@ def main():
     parser.add_argument('defense', metavar='TYPE', type=str, help='Type of defense to use',
                         choices=knockoff_utils.BBOX_CHOICES, default='none')
     parser.add_argument('defense_args', metavar='STR', type=str, help='Blackbox arguments in format "k1:v1,k2:v2,..."')
+    
+    parser.add_argument('--defense_aware',type=int,help="Whether using defense-aware attack",default = 0)
+    parser.add_argument('--recover_args',type=str,help='Recover arguments in format "k1:v1,k2:v2,..."')
+    parser.add_argument('--hardlabel',type=int,help="Whether only use hard label for extraction",default= 0)
+
+    parser.add_argument('--quantize',type=int,help="Whether using quantized defense",default=0)
+    parser.add_argument('--quantize_args',type=str,help='Quantization arguments in format "k1:v1,k2:v2,..."')
+
     parser.add_argument('--model_adv', metavar='STR', type=str, help='Model arch of F_A', default=None)
     parser.add_argument('--pretrained', metavar='STR', type=str, help='Assumption of F_A', default=None)
     parser.add_argument('--out_dir', metavar='PATH', type=str,
                         help='Destination directory to store transfer set', required=True)
     parser.add_argument('--testset', metavar='TYPE', type=str, help='Blackbox testset (P_V(X))', required=True)
-    parser.add_argument('--batch_size', metavar='TYPE', type=int, help='Batch size of queries',
+    parser.add_argument('-b','--batch_size', metavar='TYPE', type=int, help='Batch size of queries',
                         default=cfg.DEFAULT_BATCH_SIZE)
     # ----------- Params for Jacobian-based augmentation
     parser.add_argument('--budget', metavar='N', type=int, help='Query limit to blackbox', default=10000)
@@ -381,7 +425,20 @@ def main():
                         help='Iteration period after which step size is multiplied by -1', default=5)
     parser.add_argument('--epsilon',type=float,help="Epsilon for FGSM/PGD",default=0.1)
     parser.add_argument('--T',type=int,help="Number of iterations in PGD",default=8)
-    parser.add_argument('--train_epochs', metavar='N', type=int, help='# Epochs to train model', default=20)
+    parser.add_argument('-e', '--epochs', type=int, default=100, metavar='N',
+                        help='number of epochs to train (default: 100)')
+    parser.add_argument('--lr', type=float, default=0.1, metavar='LR',
+                        help='learning rate (default: 0.01)')
+    parser.add_argument('--momentum', type=float, default=0.5, metavar='M',
+                        help='SGD momentum (default: 0.5)')
+    parser.add_argument('--log_interval', type=int, default=50, metavar='N',
+                        help='how many batches to wait before logging training status')
+    parser.add_argument('--resume', default=None, type=str, metavar='PATH',
+                        help='path to latest checkpoint (default: none)')
+    parser.add_argument('--lr_step', type=int, default=30, metavar='N',
+                        help='Step sizes for LR')
+    parser.add_argument('--lr_gamma', type=float, default=0.1, metavar='N',
+                        help='LR Decay Rate')
     # ----------- Other params
     parser.add_argument('-d', '--device_id', metavar='D', type=int, help='Device id', default=0)
     parser.add_argument('-w', '--nworkers', metavar='N', type=int, help='# Worker threads to load data', default=10)
@@ -439,6 +496,10 @@ def main():
         BB = MAD
     elif defense_type == 'mad_wb':
         BB = MAD_WB
+    elif defense_type == 'mld':
+        BB = MLD
+    elif defense_type == "am":
+        BB = AM
     elif defense_type == 'reverse_sigmoid':
         BB = ReverseSigmoid
     elif defense_type == 'reverse_sigmoid_wb':
@@ -452,6 +513,22 @@ def main():
     print('=> Initializing BBox with defense {} and arguments: {}'.format(defense_type, defense_kwargs))
     blackbox = BB.from_modeldir(blackbox_dir, device, **defense_kwargs)
 
+    quantize_blackbox = None
+    if params['quantize']:
+        quantize_kwargs = knockoff_utils.parse_defense_kwargs(params['quantize_args'])
+        if quantize_kwargs['epsilon'] > 0.0:
+            print('=> Initializing Quantizer with arguments: {}'.format(quantize_kwargs))
+            quantize_blackbox = incremental_kmeans(blackbox,**quantize_kwargs)
+    
+    if params['defense_aware']:
+        recover_kwargs = knockoff_utils.parse_defense_kwargs(params['recover_args'])
+        print('=> Initializing Label Recovery with arguments: {}'.format(recover_kwargs))
+        recover = Table_Recover(quantize_blackbox if quantize_blackbox is not None else blackbox,batch_size=params['batch_size'],
+                                epsilon = quantize_kwargs['epsilon'] if (params['quantize'] and quantize_kwargs['epsilon'] > 0.0) else None,
+                                recover_mean=True,**recover_kwargs)
+    else:
+        recover = None
+
     for k, v in defense_kwargs.items():
         params[k] = v
 
@@ -459,7 +536,7 @@ def main():
     budget = params['budget']
     model_adv_name = params['model_adv']
     model_adv_pretrained = params['pretrained']
-    train_epochs = params['train_epochs']
+    train_epochs = params['epochs']
     batch_size = params['batch_size']
     kappa = params['kappa']
     tau = params['tau']
@@ -468,13 +545,16 @@ def main():
     epsilon=params['epsilon']
     T=params['T']
     policy = params['policy']
-    adversary = JacobianAdversary(blackbox, budget, model_adv_name, model_adv_pretrained, modelfamily, seedset,
+    useprobs = False if params['hardlabel'] else True
+    adversary = JacobianAdversary(quantize_blackbox if quantize_blackbox is not None else blackbox, 
+                                  budget, model_adv_name, model_adv_pretrained, modelfamily, seedset,
                                   testset, device, out_path, batch_size=batch_size,
                                   train_epochs=train_epochs, kappa=kappa, tau=tau, rho=rho,
-                                  sigma=sigma, aug_strategy=policy,epsilon=epsilon,T=T)
+                                  sigma=sigma, aug_strategy=policy,epsilon=epsilon,T=T, 
+                                  useprobs=useprobs, label_recover=recover)
 
-    print('=> constructing transfer set...')
-    transferset, model_adv = adversary.get_transferset()
+    print('=> Querying and Training...')
+    transferset, model_adv = adversary.get_transferset(**params)
     # import ipdb; ipdb.set_trace()
     # These can be massive (>30G) -- skip it for now
     # transfer_out_path = osp.join(out_path, 'transferset.pickle')

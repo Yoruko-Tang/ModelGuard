@@ -67,23 +67,24 @@ def main():
     else:
         device = torch.device('cpu')
 
-    # ----------- Set up dataset
-    dataset_name = params['dataset']
-    valid_datasets = datasets.__dict__.keys()
-    if dataset_name not in valid_datasets:
-        raise ValueError('Dataset not found. Valid arguments = {}'.format(valid_datasets))
-    dataset = datasets.__dict__[dataset_name]
-
-    modelfamily = datasets.dataset_to_modelfamily[dataset_name]
-    train_transform = datasets.modelfamily_to_transforms[modelfamily]['train']
-    test_transform = datasets.modelfamily_to_transforms[modelfamily]['test']
-    trainset = dataset(train=True, transform=train_transform,download=True)
-    testset = dataset(train=False, transform=test_transform,download=True)
-    train_classes = np.array([s[1].item() for s in trainset])
-    test_classes = np.array([s[1].item() for s in testset])
+    
 
     for i in range(params['num_shadows']):
         print("Start to train shadow %d"%i)
+        # ----------- Set up dataset
+        dataset_name = params['dataset']
+        valid_datasets = datasets.__dict__.keys()
+        if dataset_name not in valid_datasets:
+            raise ValueError('Dataset not found. Valid arguments = {}'.format(valid_datasets))
+        dataset = datasets.__dict__[dataset_name]
+
+        modelfamily = datasets.dataset_to_modelfamily[dataset_name]
+        train_transform = datasets.modelfamily_to_transforms[modelfamily]['train']
+        test_transform = datasets.modelfamily_to_transforms[modelfamily]['test']
+        trainset = dataset(train=True, transform=train_transform,download=True)
+        testset = dataset(train=False, transform=test_transform,download=True)
+        train_classes = np.array([s[1].item() for s in trainset])
+        test_classes = np.array([s[1].item() for s in testset])
         if params['num_classes'] is None:
             num_classes = len(trainset.classes)
             params['num_classes'] = num_classes
@@ -96,9 +97,15 @@ def main():
             
             train_data_idx = []
             test_data_idx = []
-            for c in sub_classes:
-                train_data_idx.append(np.arange(len(trainset))[train_classes==c])
-                test_data_idx.append(np.arange(len(testset))[test_classes==c])
+            for n,c in enumerate(sub_classes):
+                train_class_idx = np.arange(len(trainset))[train_classes==c]
+                train_data_idx.append(train_class_idx)
+                test_class_idx = np.arange(len(testset))[test_classes==c]
+                test_data_idx.append(test_class_idx)
+                for s in train_class_idx:
+                    trainset[s][1] = torch.tensor(n,dtype=torch.long)
+                for s in test_class_idx:
+                    testset[s][1] = torch.tensor(n,dtype=torch.long)
             train_data_idx = np.concatenate(train_data_idx)
             test_data_idx = np.concatenate(test_data_idx)
             

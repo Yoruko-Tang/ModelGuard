@@ -26,6 +26,7 @@ class incremental_kmeans():
         self.log_path = self.blackbox.log_path
         self.log_prefix = self.blackbox.log_prefix
         self.require_xinfo = self.blackbox.require_xinfo
+        self.top1_preserve = self.blackbox.top1_preserve
         
         self.epsilon = epsilon
         if ydist == 'l1':

@@ -73,8 +73,9 @@ class Table_Recover():
         
         
 
-    def generate_lookup_table(self,load_path=None,estimation_set=None):
-        table_size = self.table_size
+    def generate_lookup_table(self,load_path=None,estimation_set=None,table_size=None):
+        if table_size is None:
+            table_size = self.table_size
         if load_path is not None:
             if osp.exists(load_path):
                 with open(load_path,'rb') as wf:

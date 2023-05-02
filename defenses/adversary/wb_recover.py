@@ -8,6 +8,8 @@ from torch.utils.data import TensorDataset,DataLoader
 from tqdm import tqdm
 import csv
 import os.path as osp
+import os
+import json
 import pickle
 import numpy as np
 
@@ -15,6 +17,9 @@ import torch.multiprocessing
 from torch.multiprocessing import Process,Manager
 
 from defenses.utils.model import soft_cross_entropy
+from defenses.victim import AM
+import defenses.models.zoo as zoo
+from defenses import datasets
 numclasses_to_nn = {
     10:[128,64],
     43:[512,256],
@@ -47,7 +52,7 @@ class Recover_NN(nn.Module):
 
 class Table_Recover():
     max_sample_size=5000000
-    def __init__(self,blackbox,table_size=1000000,batch_size=1,epsilon=None,perturb_norm=1,recover_mean=True,recover_norm=2,tolerance=1e-4,concentration_factor=4.0,recover_nn=False,alpha=None,recover_proc=1):
+    def __init__(self,blackbox,table_size=1000000,batch_size=1,epsilon=None,perturb_norm=1,recover_mean=True,recover_norm=2,tolerance=1e-4,concentration_factor=4.0,shadow_generate=False,recover_nn=False,alpha=None,recover_proc=1):
         self.table_size = table_size
         self.blackbox = blackbox
         self.num_classes = self.blackbox.num_classes
@@ -60,6 +65,7 @@ class Table_Recover():
         self.recover_norm = recover_norm
         self.tolerance = tolerance
         self.concentration_factor=concentration_factor
+        self.shadow_generate=shadow_generate
         self.recover_nn = bool(recover_nn)
         self.alpha = alpha
         self.num_proc = recover_proc
@@ -83,16 +89,49 @@ class Table_Recover():
                                
         if table_size>0:
             print("Building Recover Table! Total Samples Number={}!".format(table_size))
-            if self.alpha is None and estimation_set is not None:
-                estimation_input,estimation_label = self.estimate_dir(estimation_set)
-                concentration = self.num_classes*self.concentration_factor
-                self.alpha = estimation_label*concentration# The std of dirichlet distribution is prop to 1/sqrt(concentration)
-                # x_infos = self.blackbox.get_xinfo(estimation_input)
-            else:
-                estimation_input = None
-            if not self.blackbox.require_xinfo: # if the blackbox does not require xinfo for yprime, we disable it in the following procedure.
-                estimation_input = None
-            true_label_sample,x_info_idxs = self.get_dirichlet_samples(self.alpha,table_size)
+            true_label_sample = []
+            x_info_idxs = []
+            if self.shadow_generate:
+                print("Use shadow models for generation!")
+                for d in os.listdir(self.blackbox.out_path):
+                    if "shadow" in d and osp.exists(osp.join(self.blackbox.out_path,d,'checkpoint.pth.tar')):
+                        params_dir = osp.join(self.blackbox.out_path,d,'params.json')
+                        with open(params_dir) as f:
+                            params = json.load(f)
+                        shadow_dataset = params['dataset']
+                        shadow_arch = params['model_arch']
+                        num_classes = params['num_classes']
+                        modelfamily = datasets.dataset_to_modelfamily[shadow_dataset]
+                        shadow_model = zoo.get_net(shadow_arch, modelfamily, osp.join(self.blackbox.out_path,d), num_classes=num_classes)
+                        shadow_model.to(self.device)
+                        shadow_model.eval()
+                        query_data,_ = self.estimate_dir(estimation_set)
+                        for i in range(0,len(query_data),self.batch_size):
+                            x = query_data[i:min(i+self.batch_size,len(query_data))].to(self.device)
+                            y = shadow_model(x).detach().cpu()
+                            true_label_sample.append(y)
+                        x_info_idxs += list(range(len(query_data)))
+                true_label_sample = torch.cat(true_label_sample,dim=0)
+                table_size = table_size-len(true_label_sample)
+                if table_size < 0:
+                    true_label_sample = true_label_sample[np.random.choice(list(range(len(true_label_sample))),len(true_label_sample)+table_size,replace=False)]
+
+            if table_size>0:
+                if self.alpha is None and estimation_set is not None:
+                    estimation_input,estimation_label = self.estimate_dir(estimation_set)
+                    concentration = self.num_classes*self.concentration_factor
+                    self.alpha = estimation_label*concentration# The std of dirichlet distribution is prop to 1/sqrt(concentration)
+                    # x_infos = self.blackbox.get_xinfo(estimation_input)
+                else:
+                    estimation_input = None
+                if not self.blackbox.require_xinfo: # if the blackbox does not require xinfo for yprime, we disable it in the following procedure.
+                    estimation_input = None
+                true_label_sample_dir,x_info_idxs_dir = self.get_dirichlet_samples(self.alpha,table_size)
+                if len(true_label_sample)==0:
+                    true_label_sample = true_label_sample_dir
+                else:
+                    true_label_sample = torch.cat([true_label_sample,true_label_sample_dir],dim=0)
+                x_info_idxs += x_info_idxs_dir
 
             if self.num_proc == 1:
                 perturbed_label_sample = self.get_perturbed_label_sample(self.blackbox,true_label_sample,estimation_input,x_info_idxs,self.batch_size)
@@ -354,13 +393,25 @@ class Table_Recover():
                         rec_dis.append(distances[min_idx])
                     else:
                         tolerance = max([self.tolerance,torch.min(distances).cpu().item()])
-                        y.append(torch.mean(true_label_filtered[distances<=tolerance,:],dim=0,keepdim=True))
-                        rec_dis.append(torch.mean(distances[distances<=tolerance]))
+                        if isinstance(self.blackbox,AM) and torch.max(yprime_c[i]).cpu().item()>self.blackbox.defense_fn.delta_list and tolerance>self.tolerance:
+                            y.append(yprime_c[i].unsqueeze(0))
+                            rec_dis.append(torch.tensor(0.0).to(yprime))
+                        else:
+                            y.append(torch.mean(true_label_filtered[distances<=tolerance,:],dim=0,keepdim=True))
+                            rec_dis.append(torch.mean(distances[distances<=tolerance]))
                     if pbar is not None:
                         pbar.update(1)
                 
                 res[top1_label==c]=torch.cat(y,dim=0)
-                    
+            # if isinstance(self.blackbox,AM):
+            #     max_yprime,_ = torch.max(yprime,dim=1)
+            #     id_idx = max_yprime>self.blackbox.defense_fn.delta_list
+            #     od_idx = max_yprime<=self.blackbox.defense_fn.delta_list
+            #     mean_mis_info = torch.mean(yprime[od_idx],dim=0)
+            #     std_dis = torch.mean(torch.norm(yprime[od_idx]-mean_mis_info,p=2,dim=1))
+            #     print("Std of misinformation:",std_dis)
+            #     print("id_idx length:",torch.sum(id_idx))
+            #     print("Minimum maximum value:",torch.min(max_yprime))
             self.call_count += len(yprime)
             mean_rec_dis = torch.mean(torch.tensor(rec_dis)).cpu().item()
             std_rec_dis = torch.std(torch.tensor(rec_dis)).cpu().item()

@@ -35,7 +35,7 @@ pretrained=${vic_dir}
 ## random
 policy=random
 hardlabel=0
-defense_aware=1
+defense_aware=0
 
 # Lookup Table Attack
 recover_table_size=1000000
@@ -183,7 +183,7 @@ defense_args="beta:${beta};gamma:${gamma};out_path:${out_dir}"
 strat=am
 oe_lamb=1.0
 oeset=SVHN
-defense_lv=0.99
+defense_lv=0.7
 # Output path to attacker's model
 out_dir=models/final_bb_dist/${p_v}-${f_v}/${policy}${policy_suffix}-${queryset}-B${budget}/am/tau${defense_lv}-quantize${quantize_epsilon}
 defense_args="defense_level:${defense_lv};out_path:${out_dir}"

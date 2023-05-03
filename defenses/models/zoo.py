@@ -9,6 +9,8 @@ import defenses.models.imagenet # Need Pretrainedmodel module
 
 
 def get_net(modelname, modeltype, pretrained=None, **kwargs):
+    if modeltype in ['tinyimagenet','lisa']:
+        modeltype = 'cifar'
     assert modeltype in ('mnist', 'cifar', 'imagenet')
     # print('[DEBUG] pretrained={}\tnum_classes={}'.format(pretrained, kwargs['num_classes']))
     if pretrained is not None:

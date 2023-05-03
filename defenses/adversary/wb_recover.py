@@ -52,7 +52,7 @@ class Recover_NN(nn.Module):
 
 class Table_Recover():
     max_sample_size=5000000
-    def __init__(self,blackbox,table_size=1000000,batch_size=1,epsilon=None,perturb_norm=1,recover_mean=True,recover_norm=2,tolerance=1e-4,concentration_factor=4.0,shadow_generate=False,recover_nn=False,alpha=None,recover_proc=1):
+    def __init__(self,blackbox,table_size=1000000,batch_size=1,epsilon=None,perturb_norm=1,recover_mean=True,recover_norm=2,tolerance=1e-4,concentration_factor=4.0,shadow_path=None,recover_nn=False,alpha=None,recover_proc=1):
         self.table_size = table_size
         self.blackbox = blackbox
         self.num_classes = self.blackbox.num_classes
@@ -65,7 +65,11 @@ class Table_Recover():
         self.recover_norm = recover_norm
         self.tolerance = tolerance
         self.concentration_factor=concentration_factor
-        self.shadow_generate=shadow_generate
+        if shadow_path is not None and osp.exists(shadow_path):
+            self.shadow_generate=True
+            self.shadow_path = shadow_path
+        else:
+            self.shadow_generate=False
         self.recover_nn = bool(recover_nn)
         self.alpha = alpha
         self.num_proc = recover_proc
@@ -94,16 +98,16 @@ class Table_Recover():
             x_info_idxs = []
             if self.shadow_generate:
                 print("Use shadow models for generation!")
-                for d in os.listdir(self.blackbox.out_path):
-                    if "shadow" in d and osp.exists(osp.join(self.blackbox.out_path,d,'checkpoint.pth.tar')):
-                        params_dir = osp.join(self.blackbox.out_path,d,'params.json')
+                for d in os.listdir(self.shadow_path):
+                    if "shadow" in d and osp.exists(osp.join(self.shadow_path,d,'checkpoint.pth.tar')):
+                        params_dir = osp.join(self.shadow_path,d,'params.json')
                         with open(params_dir) as f:
                             params = json.load(f)
                         shadow_dataset = params['dataset']
                         shadow_arch = params['model_arch']
                         num_classes = params['num_classes']
                         modelfamily = datasets.dataset_to_modelfamily[shadow_dataset]
-                        shadow_model = zoo.get_net(shadow_arch, modelfamily, osp.join(self.blackbox.out_path,d), num_classes=num_classes)
+                        shadow_model = zoo.get_net(shadow_arch, modelfamily, osp.join(self.shadow_path,d), num_classes=num_classes)
                         shadow_model.to(self.device)
                         shadow_model.eval()
                         query_data,_ = self.estimate_dir(estimation_set)

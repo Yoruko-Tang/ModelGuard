@@ -3,7 +3,7 @@ python defenses/victim/train.py Caltech256 resnet50 --out_path models/victim/Cal
 
 ################################ Caltech256 ################################
 ### If you have multiple GPUs on the machine, use this to select the specific GPU
-dev_id=3
+dev_id=0
 ### p_v = victim model dataset
 p_v=Caltech256
 ### f_v = architecture of victim model
@@ -66,8 +66,8 @@ semi_dataset=${queryset}
 
 ### Defense strategy
 ## Quantization
-quantize=1
-quantize_epsilon=1.0
+quantize=0
+quantize_epsilon=0.0
 optim=0
 ydist=l1
 

@@ -27,7 +27,7 @@ __status__ = "Development"
 
 
 class Indoor67(ImageFolder):
-    def __init__(self, train=True, transform=None, target_transform=None):
+    def __init__(self, train=True, transform=None, target_transform=None,**kwargs):
         root = osp.join(cfg.DATASET_ROOT, 'indoor')
         if not osp.exists(root):
             raise ValueError('Dataset not found at {}. Please download it from {}.'.format(

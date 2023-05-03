@@ -14,6 +14,7 @@ from defenses.datasets.imagenet1k import ImageNet1k
 from defenses.datasets.indoor67 import Indoor67
 from defenses.datasets.mnistlike import MNIST, KMNIST, EMNIST, EMNISTLetters, FashionMNIST
 from defenses.datasets.tinyimagenet200 import TinyImageNet200
+from defenses.datasets.lisa import LISA
 
 
 # Source: https://discuss.pytorch.org/t/is-there-anyway-to-do-gaussian-filtering-for-an-image-2d-3d-in-pytorch/12351/11
@@ -54,6 +55,7 @@ dataset_to_modelfamily = {
     'SVHN': 'cifar',
     'GTSRB': 'cifar',
     'TinyImagesSubset': 'cifar',
+    
 
     # Imagenet
     'CUBS200': 'imagenet',
@@ -64,6 +66,8 @@ dataset_to_modelfamily = {
     'ImageFolder': 'imagenet',
 
     'TinyImageNet200': 'tinyimagenet',
+
+    'LISA': 'lisa',
 }
 
 modelfamily_to_mean_std = {
@@ -78,6 +82,10 @@ modelfamily_to_mean_std = {
     'imagenet': {
         'mean': (0.485, 0.456, 0.406),
         'std': (0.229, 0.224, 0.225),
+    },
+    'lisa': {
+        'mean': (0.4563, 0.4076, 0.3895),
+        'std': (0.2298, 0.2144, 0.2259),
     }
 }
 
@@ -142,5 +150,20 @@ modelfamily_to_transforms = {
             transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                  std=[0.229, 0.224, 0.225]),
         ])
-    }
+    },
+
+    'lisa':{
+        'train': transforms.Compose([
+            transforms.Resize([32,32]),
+            transforms.RandomCrop(32, padding=4),
+            transforms.RandomHorizontalFlip(),
+            transforms.Normalize(mean=(0.4563, 0.4076, 0.3895),
+                                 std=(0.2298, 0.2144, 0.2259)),
+        ]),
+        'test': transforms.Compose([
+            transforms.Resize([32,32]),
+            transforms.Normalize(mean=(0.4563, 0.4076, 0.3895),
+                                 std=(0.2298, 0.2144, 0.2259)),
+        ])
+    },
 }

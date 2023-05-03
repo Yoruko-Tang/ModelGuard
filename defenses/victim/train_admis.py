@@ -97,8 +97,8 @@ def main():
     modelfamily_oe = datasets.dataset_to_modelfamily[dataset_oe_name]
     train_oe_transform = datasets.modelfamily_to_transforms[modelfamily_oe]['train']
     test_oe_transform = datasets.modelfamily_to_transforms[modelfamily_oe]['test']
-    trainset_oe = dataset_oe(train=True, transform=train_oe_transform)
-    testset_oe = dataset_oe(train=False, transform=test_oe_transform)
+    trainset_oe = dataset_oe(train=True, transform=train_oe_transform,download=True)
+    testset_oe = dataset_oe(train=False, transform=test_oe_transform,download=True)
 
 
     # ----------- Set up model
@@ -111,19 +111,6 @@ def main():
     model_poison = zoo.get_net(model_name, modelfamily, pretrained,
                                 num_classes=num_classes)  # Alt model for Selective Misinformation
     model_poison = model_poison.to(device)
-
-    # # Load original victim model
-
-    # out_path = params['out_path']
-    # checkpoint_path = osp.join(out_path, 'model_best.pth.tar')
-    # if not osp.exists(checkpoint_path):
-    #     checkpoint_path = osp.join(out_path, "checkpoint_victim.pth.tar")
-    # if not osp.exists(checkpoint_path):
-    #     checkpoint_path = osp.join(out_path, "checkpoint.pth.tar")
-    # print("=> loading victim model checkpoint '{}'".format(checkpoint_path))
-
-    # checkpoint = torch.load(checkpoint_path)
-    # model.load_state_dict(checkpoint["state_dict"])
 
     # ----------- Train
     out_path = params['out_path']

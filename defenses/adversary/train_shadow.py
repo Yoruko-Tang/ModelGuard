@@ -83,8 +83,8 @@ def main():
         test_transform = datasets.modelfamily_to_transforms[modelfamily]['test']
         trainset = dataset(train=True, transform=train_transform,download=True)
         testset = dataset(train=False, transform=test_transform,download=True)
-        train_classes = np.array([s[1].item() for s in trainset])
-        test_classes = np.array([s[1].item() for s in testset])
+        train_classes = np.array([s[1] for s in trainset.samples])
+        test_classes = np.array([s[1] for s in testset.samples])
         if params['num_classes'] is None:
             num_classes = len(trainset.classes)
             params['num_classes'] = num_classes
@@ -93,7 +93,7 @@ def main():
         else:
             # use subset for training
             num_classes = params['num_classes']
-            sub_classes = np.random.choice(np.arange(np.max(train_classes)),num_classes,replace=False)
+            sub_classes = np.random.choice(np.arange(np.max(train_classes)+1),num_classes,replace=False)
             
             train_data_idx = []
             test_data_idx = []
@@ -103,17 +103,17 @@ def main():
                 test_class_idx = np.arange(len(testset))[test_classes==c]
                 test_data_idx.append(test_class_idx)
                 for s in train_class_idx:
-                    trainset[s][1] = torch.tensor(n,dtype=torch.long)
+                    trainset.samples[s] = (trainset.samples[s][0],n)
                 for s in test_class_idx:
-                    testset[s][1] = torch.tensor(n,dtype=torch.long)
+                    testset.samples[s] = (testset.samples[s][0],n)
             train_data_idx = np.concatenate(train_data_idx)
             test_data_idx = np.concatenate(test_data_idx)
             
             
             trainset_i = Subset(trainset,train_data_idx)
             testset_i = Subset(testset,test_data_idx)
-        print("Loaded training set with length {} ({} classes)".format(len(trainset_i,num_classes)))
-        print("Loaded test set with length {} ({} classes)".format(len(testset_i,num_classes)))
+        print("Loaded training set with length {} ({} classes)".format(len(trainset_i),num_classes))
+        print("Loaded test set with length {} ({} classes)".format(len(testset_i),num_classes))
             
 
         # ----------- Set up model

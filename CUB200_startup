@@ -207,7 +207,7 @@ python defenses/victim/train_admis.py ${p_v} ${f_v} -o ${vic_dir} -b 64 -d ${dev
 python defenses/victim/eval.py ${vic_dir} ${strat} ${defense_args} --out_dir ${out_dir} --batch_size ${batch_size} -d ${dev_id}
 
 # (adversarial) train shadow models
-python defenses/victim/train_shadow.py ${shadowset} ${shadow_model} -o ${shadow_path} -b 64 -d ${dev_id} -e 10 -w 4 --lr 0.01 --lr_step 5 --lr_gamma 0.5 --pretrained ${pretrained} --num_shadows ${num_shadows} --num_classes ${num_classes}
+python defenses/victim/train_shadow.py ${shadowset} ${shadow_model} -o ${shadow_path} -b 64 -d ${dev_id} -e 5 -w 10 --lr 0.01 --lr_step 3 --lr_gamma 0.5 --pretrained ${pretrained} --num_shadows ${num_shadows} --num_classes ${num_classes}
 
 # (adversary) generate transfer dataset (only when policy=random)
 python defenses/adversary/transfer.py ${policy} ${vic_dir} ${strat} ${defense_args} --out_dir ${out_dir} --batch_size ${batch_size} -d ${dev_id} --queryset ${queryset} --budget ${budget} --quantize ${quantize} --quantize_args ${quantize_args} --defense_aware ${defense_aware} --recover_args ${recover_params} --hardlabel ${hardlabel}

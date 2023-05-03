@@ -10,8 +10,15 @@ p_v=CIFAR100
 f_v=vgg16_bn
 ### queryset = p_a = image pool of the attacker 
 queryset=TinyImageNet200
+
 ### Path to victim model's directory (the one downloded earlier)
-vic_dir=models/victim/${p_v}-${f_v}-train-nodefense
+am_flag=True
+if [ ${am_flag} = True ]; then
+    am_suffix="-OE-${oeset}-${defense_lv}"
+else
+    am_suffix=""
+fi
+vic_dir=models/victim/${p_v}-${f_v}-train-nodefense${am_suffix}
 ### No. of images queried by the attacker. With 60k, attacker obtains 99.05% test accuracy on MNIST at eps=0.0.
 budget=50000 
 ### Batch size of queries to process for the attacker
@@ -183,8 +190,9 @@ defense_args="beta:${beta};gamma:${gamma};out_path:${out_dir}"
 strat=am
 oe_lamb=1.0
 oeset=SVHN
-defense_lv=0.6
+defense_lv=0.5
 # Output path to attacker's model
+
 out_dir=models/final_bb_dist/${p_v}-${f_v}/${policy}${policy_suffix}-${queryset}-B${budget}/am/tau${defense_lv}-quantize${quantize_epsilon}
 defense_args="defense_level:${defense_lv};out_path:${out_dir}"
 

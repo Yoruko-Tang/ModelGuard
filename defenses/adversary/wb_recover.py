@@ -98,6 +98,8 @@ class Table_Recover():
             x_info_idxs = []
             if self.shadow_generate:
                 print("Use shadow models for generation!")
+                assert estimation_set is not None, "The esitimation set cannot by None when using shadow models for true prediction generation!"
+                estimation_input,_ = self.estimate_dir(estimation_set)
                 for d in os.listdir(self.shadow_path):
                     if "shadow" in d and osp.exists(osp.join(self.shadow_path,d,'checkpoint.pth.tar')):
                         params_dir = osp.join(self.shadow_path,d,'params.json')
@@ -110,12 +112,11 @@ class Table_Recover():
                         shadow_model = zoo.get_net(shadow_arch, modelfamily, osp.join(self.shadow_path,d), num_classes=num_classes)
                         shadow_model.to(self.device)
                         shadow_model.eval()
-                        query_data,_ = self.estimate_dir(estimation_set)
-                        for i in range(0,len(query_data),self.batch_size):
-                            x = query_data[i:min(i+self.batch_size,len(query_data))].to(self.device)
-                            y = shadow_model(x).detach().cpu()
+                        for i in range(0,len(estimation_input),self.batch_size):
+                            x = estimation_input[i:min(i+self.batch_size,len(estimation_input))].to(self.device)
+                            y = F.softmax(shadow_model(x),dim=1).detach().cpu()
                             true_label_sample.append(y)
-                        x_info_idxs += list(range(len(query_data)))
+                        x_info_idxs += list(range(len(estimation_input)))
                 true_label_sample = torch.cat(true_label_sample,dim=0)
                 table_size = table_size-len(true_label_sample)
                 if table_size < 0:
@@ -129,8 +130,7 @@ class Table_Recover():
                     # x_infos = self.blackbox.get_xinfo(estimation_input)
                 else:
                     estimation_input = None
-                if not self.blackbox.require_xinfo: # if the blackbox does not require xinfo for yprime, we disable it in the following procedure.
-                    estimation_input = None
+                
                 true_label_sample_dir,x_info_idxs_dir = self.get_dirichlet_samples(self.alpha,table_size)
                 if len(true_label_sample)==0:
                     true_label_sample = true_label_sample_dir
@@ -138,6 +138,8 @@ class Table_Recover():
                     true_label_sample = torch.cat([true_label_sample,true_label_sample_dir],dim=0)
                 x_info_idxs += x_info_idxs_dir
 
+            if not self.blackbox.require_xinfo: # if the blackbox does not require xinfo for yprime, we disable it in the following procedure.
+                estimation_input = None
             if self.num_proc == 1:
                 perturbed_label_sample = self.get_perturbed_label_sample(self.blackbox,true_label_sample,estimation_input,x_info_idxs,self.batch_size)
             else:
@@ -349,7 +351,7 @@ class Table_Recover():
             total_loss = 0.0
             total_dist = 0.0
             total_iter = 0
-            for pl,tl in trainloader:
+            for n,(pl,tl) in enumerate(trainloader):
                 total_iter += 1
                 pl,tl = pl.to(self.device),tl.to(self.device)
                 output = model(pl)
@@ -359,6 +361,8 @@ class Table_Recover():
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
+                # if (n+1)%10 == 0:
+                #     print("Iteration: %d\tloss: %f"%(n+1,loss.item()))
             scheduler.step()
             #l2_dist = torch.mean(torch.norm(model(pl).detach()-tl,p=2,dim=1)).cpu().item()
             print("Epoch: {}\tLoss: {:.4f}\tL2 Distance: {:.4f}".format(e+1,total_loss/total_iter,total_dist/total_iter))

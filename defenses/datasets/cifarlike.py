@@ -61,7 +61,7 @@ class TinyImagesSubset(ImageFolder):
     A 800K subset of the 80M TinyImages data consisting of 32x32 pixel images from the internet. 
     Note: that the dataset is unlabeled.
     """
-    def __init__(self, train=True, transform=None, target_transform=None):
+    def __init__(self, train=True, transform=None, target_transform=None, **kwargs):
         root = osp.join(cfg.DATASET_ROOT, 'tiny-images-subset')
         if not osp.exists(root):
             raise ValueError('Dataset not found at {}. Please download it from {}.'.format(

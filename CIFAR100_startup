@@ -10,14 +10,7 @@ p_v=CIFAR100
 f_v=vgg16_bn
 ### queryset = p_a = image pool of the attacker 
 queryset=TinyImageNet200
-
 ### Path to victim model's directory (the one downloded earlier)
-am_flag=True
-if [ ${am_flag} = True ]; then
-    am_suffix="-OE-${oeset}-${defense_lv}"
-else
-    am_suffix=""
-fi
 vic_dir=models/victim/${p_v}-${f_v}-train-nodefense${am_suffix}
 ### No. of images queried by the attacker. With 60k, attacker obtains 99.05% test accuracy on MNIST at eps=0.0.
 budget=50000 
@@ -35,14 +28,11 @@ training_batch_size=128
 # use imagenet pretrained
 pretrained=imagenet
 
-# use optimal pretrained
-pretrained=${vic_dir}
-
 ### attack policy
 ## random
 policy=random
 hardlabel=0
-defense_aware=1
+defense_aware=0
 
 # Lookup Table Attack
 recover_table_size=1000000
@@ -61,6 +51,16 @@ recover_proc=10
 policy_suffix="_ddae${defense_aware}_hard${hardlabel}"
 recover_params="table_size:${recover_table_size};concentration_factor:${concentration_factor};recover_proc:${recover_proc};recover_nn:1"
 
+# Vanilla D-DAE
+shadow_model=alexnet
+num_shadows=20
+shadowset=TinyImageNet200
+num_classes=100
+shadow_path=models/victim/${p_v}-${shadow_model}-shadow
+recover_table_size=1000000
+recover_proc=5
+policy_suffix="_vddae${defense_aware}_hard${hardlabel}"
+recover_params="table_size:${recover_table_size};shadow_path:${shadow_path};recover_proc:${recover_proc};recover_nn:1"
 
 ## jbda/jbself/jbtop
 policy=jbtop3
@@ -75,8 +75,8 @@ semi_dataset=${queryset}
 
 ### Defense strategy
 ## Quantization
-quantize=1
-quantize_epsilon=1.0
+quantize=0
+quantize_epsilon=0.0
 optim=0
 ydist=l1
 
@@ -192,7 +192,6 @@ oe_lamb=1.0
 oeset=SVHN
 defense_lv=0.5
 # Output path to attacker's model
-
 out_dir=models/final_bb_dist/${p_v}-${f_v}/${policy}${policy_suffix}-${queryset}-B${budget}/am/tau${defense_lv}-quantize${quantize_epsilon}
 defense_args="defense_level:${defense_lv};out_path:${out_dir}"
 
@@ -205,6 +204,9 @@ python defenses/victim/train_admis.py ${p_v} ${f_v} -o ${vic_dir} -b 64 -d ${dev
 
 # (defense) evaluate original model with defense on testset
 python defenses/victim/eval.py ${vic_dir} ${strat} ${defense_args} --out_dir ${out_dir} --batch_size ${batch_size} -d ${dev_id}
+
+# (adversarial) train shadow models
+python defenses/adversary/train_shadow.py ${shadowset} ${shadow_model} -o ${shadow_path} -b 64 -d ${dev_id} -e 20 -w 10 --lr 0.01 --lr_step 10 --lr_gamma 0.5 --pretrained ${pretrained} --num_shadows ${num_shadows} --num_classes ${num_classes}
 
 # (adversary) generate transfer dataset (only when policy=random)
 python defenses/adversary/transfer.py ${policy} ${vic_dir} ${strat} ${defense_args} --out_dir ${out_dir} --batch_size ${batch_size} -d ${dev_id} --queryset ${queryset} --budget ${budget} --quantize ${quantize} --quantize_args ${quantize_args} --defense_aware ${defense_aware} --recover_args ${recover_params} --hardlabel ${hardlabel}

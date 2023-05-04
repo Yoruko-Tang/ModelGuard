@@ -33,7 +33,7 @@ class TinyImageNet200(ImageFolder):
 
     """
 
-    def __init__(self, train=True, transform=None, target_transform=None):
+    def __init__(self, train=True, transform=None, target_transform=None, **kwargs):
         root = osp.join(cfg.DATASET_ROOT, 'tiny-imagenet-200')
         if not osp.exists(root):
             raise ValueError('Dataset not found at {}. Please download it from {}.'.format(

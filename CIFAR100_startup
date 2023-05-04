@@ -51,6 +51,16 @@ recover_proc=10
 policy_suffix="_ddae${defense_aware}_hard${hardlabel}"
 recover_params="table_size:${recover_table_size};concentration_factor:${concentration_factor};recover_proc:${recover_proc};recover_nn:1"
 
+# Vanilla D-DAE
+shadow_model=alexnet
+num_shadows=20
+shadowset=TinyImageNet200
+num_classes=100
+shadow_path=models/victim/${p_v}-${shadow_model}-shadow
+recover_table_size=1000000
+recover_proc=5
+policy_suffix="_vddae${defense_aware}_hard${hardlabel}"
+recover_params="table_size:${recover_table_size};shadow_path:${shadow_path};recover_proc:${recover_proc};recover_nn:1"
 
 ## jbda/jbself/jbtop
 policy=jbtop3
@@ -194,6 +204,9 @@ python defenses/victim/train_admis.py ${p_v} ${f_v} -o ${vic_dir} -b 64 -d ${dev
 
 # (defense) evaluate original model with defense on testset
 python defenses/victim/eval.py ${vic_dir} ${strat} ${defense_args} --out_dir ${out_dir} --batch_size ${batch_size} -d ${dev_id}
+
+# (adversarial) train shadow models
+python defenses/adversary/train_shadow.py ${shadowset} ${shadow_model} -o ${shadow_path} -b 64 -d ${dev_id} -e 20 -w 10 --lr 0.01 --lr_step 10 --lr_gamma 0.5 --pretrained ${pretrained} --num_shadows ${num_shadows} --num_classes ${num_classes}
 
 # (adversary) generate transfer dataset (only when policy=random)
 python defenses/adversary/transfer.py ${policy} ${vic_dir} ${strat} ${defense_args} --out_dir ${out_dir} --batch_size ${batch_size} -d ${dev_id} --queryset ${queryset} --budget ${budget} --quantize ${quantize} --quantize_args ${quantize_args} --defense_aware ${defense_aware} --recover_args ${recover_params} --hardlabel ${hardlabel}

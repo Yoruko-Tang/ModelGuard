@@ -16,6 +16,7 @@ from defenses.datasets.mnistlike import MNIST, KMNIST, EMNIST, EMNISTLetters, Fa
 from defenses.datasets.tinyimagenet200 import TinyImageNet200
 from defenses.datasets.lisa import LISA
 from defenses.datasets.dtd import DTD
+from defenses.datasets.ImageNette import ImageNette
 
 
 
@@ -67,6 +68,7 @@ dataset_to_modelfamily = {
     'ImageNet1k': 'imagenet',
     'ImageFolder': 'imagenet',
     'DTD': 'imagenet',
+    'ImageNette': 'imagenet',
 
     'TinyImageNet200': 'tinyimagenet',
 

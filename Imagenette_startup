@@ -1,13 +1,13 @@
 # generate randomly initialized surrogate model
 python defenses/victim/train.py DTD vgg16_bn --out_path models/victim/DTD-vgg16_bn-train-nodefense-scratch-advproxy --device_id 0 --epochs 1 --train_subset 10 --lr 0.0
 
-################################ DTD ################################
+################################ ImageNette ################################
 ### If you have multiple GPUs on the machine, use this to select the specific GPU
 dev_id=1
 ### p_v = victim model dataset
-p_v=DTD
+p_v=ImageNette
 ### f_v = architecture of victim model
-f_v=resnet50
+f_v=vgg16_bn
 ### queryset = p_a = image pool of the attacker 
 queryset=ImageNet1k
 ### Path to victim model's directory (the one downloded earlier)
@@ -75,8 +75,8 @@ semi_dataset=${queryset}
 
 ### Defense strategy
 ## Quantization
-quantize=1
-quantize_epsilon=1.0
+quantize=0
+quantize_epsilon=0.0
 optim=0
 ydist=l1
 

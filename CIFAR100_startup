@@ -11,7 +11,7 @@ f_v=vgg16_bn
 ### queryset = p_a = image pool of the attacker 
 queryset=TinyImageNet200
 ### Path to victim model's directory (the one downloded earlier)
-vic_dir=models/victim/${p_v}-${f_v}-train-nodefense${am_suffix}
+vic_dir=models/victim/${p_v}-${f_v}-train-nodefense
 ### No. of images queried by the attacker. With 60k, attacker obtains 99.05% test accuracy on MNIST at eps=0.0.
 budget=50000 
 ### Batch size of queries to process for the attacker

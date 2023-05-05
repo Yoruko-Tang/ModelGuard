@@ -15,6 +15,9 @@ from defenses.datasets.indoor67 import Indoor67
 from defenses.datasets.mnistlike import MNIST, KMNIST, EMNIST, EMNISTLetters, FashionMNIST
 from defenses.datasets.tinyimagenet200 import TinyImageNet200
 from defenses.datasets.lisa import LISA
+from defenses.datasets.dtd import DTD
+from defenses.datasets.oxfordpet import OxfordIIITPet
+
 
 
 # Source: https://discuss.pytorch.org/t/is-there-anyway-to-do-gaussian-filtering-for-an-image-2d-3d-in-pytorch/12351/11
@@ -64,6 +67,8 @@ dataset_to_modelfamily = {
     'Diabetic5': 'imagenet',
     'ImageNet1k': 'imagenet',
     'ImageFolder': 'imagenet',
+    'DTD': 'imagenet',
+    'OxfordIIITPet': 'imagenet',
 
     'TinyImageNet200': 'tinyimagenet',
 
@@ -166,4 +171,6 @@ modelfamily_to_transforms = {
                                  std=(0.2298, 0.2144, 0.2259)),
         ])
     },
+
+    
 }

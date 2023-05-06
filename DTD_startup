@@ -75,8 +75,8 @@ semi_dataset=${queryset}
 
 ### Defense strategy
 ## Quantization
-quantize=0
-quantize_epsilon=0.0
+quantize=1
+quantize_epsilon=1.0
 optim=0
 ydist=l1
 

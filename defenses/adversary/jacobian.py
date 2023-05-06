@@ -46,8 +46,8 @@ class JacobianAdversary:
     2. (JB-{topk, self}) "PRADA: Protecting against DNN Model Stealing Attacks", Juuti et al., Euro S&P '19
     """
     def __init__(self, blackbox, budget, model_adv_name, model_adv_pretrained, modelfamily, seedset, testset, device,
-                 out_dir, batch_size=cfg.DEFAULT_BATCH_SIZE, train_epochs=30, kappa=400, tau=None, rho=6, sigma=-1,
-                 query_batch_size=32, aug_strategy='jbda',epsilon=0.1,T=8, useprobs=True, final_train_epochs=30,
+                 out_dir, kappa=400, tau=None, rho=6, sigma=-1,
+                 query_batch_size=32, aug_strategy='jbda',epsilon=0.1,T=8, useprobs=True, 
                  label_recover=None):
         self.blackbox = blackbox
         self.budget = budget
@@ -57,11 +57,7 @@ class JacobianAdversary:
         self.modelfamily = modelfamily
         self.seedset = seedset
         self.testset = testset
-        self.batch_size = batch_size
         self.query_batch_size = query_batch_size
-        self.testloader = DataLoader(self.testset, batch_size=self.batch_size, pin_memory=True)
-        self.train_epochs = train_epochs
-        self.final_train_epochs = final_train_epochs
         self.kappa = kappa
         self.tau = tau
         self.rho = rho
@@ -143,7 +139,7 @@ class JacobianAdversary:
             self.model_adv = self.model_adv.to(self.device)
 
             # -------------------------- 1. Train model on D
-            self.model_adv = model_utils.train_model(self.model_adv, self.D, self.out_dir, num_workers=10,
+            self.model_adv = model_utils.train_model(self.model_adv, self.D, self.out_dir, 
                                                 checkpoint_suffix='.{}'.format(self.blackbox.call_count),
                                                 device=self.device, testset=self.testset, criterion_train=model_utils.soft_cross_entropy,
                                                 gt_model=self.blackbox.model,**opt_kargs)
@@ -169,7 +165,7 @@ class JacobianAdversary:
                 self.model_adv = zoo.get_net(self.model_adv_name, self.modelfamily, self.model_adv_pretrained,
                                         num_classes=self.num_classes)
                 self.model_adv = self.model_adv.to(self.device)
-                self.model_adv = model_utils.train_model(self.model_adv, self.D, self.out_dir, num_workers=10,
+                self.model_adv = model_utils.train_model(self.model_adv, self.D, self.out_dir,
                                                     checkpoint_suffix='.{}'.format(self.blackbox.call_count),
                                                     device=self.device, testset=self.testset, criterion_train=model_utils.soft_cross_entropy,
                                                     gt_model=self.blackbox.model,**opt_kargs)
@@ -412,8 +408,8 @@ def main():
     parser.add_argument('--out_dir', metavar='PATH', type=str,
                         help='Destination directory to store transfer set', required=True)
     parser.add_argument('--testset', metavar='TYPE', type=str, help='Blackbox testset (P_V(X))', required=True)
-    parser.add_argument('-b','--batch_size', metavar='TYPE', type=int, help='Batch size of queries',
-                        default=cfg.DEFAULT_BATCH_SIZE)
+    parser.add_argument('--query_batch_size', metavar='TYPE', type=str, help='Batch size of queries',default=32)
+
     # ----------- Params for Jacobian-based augmentation
     parser.add_argument('--budget', metavar='N', type=int, help='Query limit to blackbox', default=10000)
     parser.add_argument('--queryset', metavar='TYPE', type=str, help='Data for seed images', required=True)
@@ -427,6 +423,8 @@ def main():
     parser.add_argument('--T',type=int,help="Number of iterations in PGD",default=8)
     parser.add_argument('-e', '--epochs', type=int, default=100, metavar='N',
                         help='number of epochs to train (default: 100)')
+    parser.add_argument('-b','--batch_size', metavar='TYPE', type=int, help='Batch size of training',
+                            default=cfg.DEFAULT_BATCH_SIZE)
     parser.add_argument('--lr', type=float, default=0.1, metavar='LR',
                         help='learning rate (default: 0.01)')
     parser.add_argument('--momentum', type=float, default=0.5, metavar='M',
@@ -441,7 +439,7 @@ def main():
                         help='LR Decay Rate')
     # ----------- Other params
     parser.add_argument('-d', '--device_id', metavar='D', type=int, help='Device id', default=0)
-    parser.add_argument('-w', '--nworkers', metavar='N', type=int, help='# Worker threads to load data', default=10)
+    parser.add_argument('-w', '--num_workers', metavar='N', type=int, help='# Worker threads to load data', default=10)
     parser.add_argument('--train_transform', action='store_true', help='Perform data augmentation', default=False)
     args = parser.parse_args()
     params = vars(args)
@@ -536,8 +534,7 @@ def main():
     budget = params['budget']
     model_adv_name = params['model_adv']
     model_adv_pretrained = params['pretrained']
-    train_epochs = params['epochs']
-    batch_size = params['batch_size']
+    query_batch_size = params['query_batch_size']
     kappa = params['kappa']
     tau = params['tau']
     rho = params['rho']
@@ -548,8 +545,8 @@ def main():
     useprobs = False if params['hardlabel'] else True
     adversary = JacobianAdversary(quantize_blackbox if quantize_blackbox is not None else blackbox, 
                                   budget, model_adv_name, model_adv_pretrained, modelfamily, seedset,
-                                  testset, device, out_path, batch_size=batch_size,
-                                  train_epochs=train_epochs, kappa=kappa, tau=tau, rho=rho,
+                                  testset, device, out_path, query_batch_size=query_batch_size,
+                                  kappa=kappa, tau=tau, rho=rho,
                                   sigma=sigma, aug_strategy=policy,epsilon=epsilon,T=T, 
                                   useprobs=useprobs, label_recover=recover)
 

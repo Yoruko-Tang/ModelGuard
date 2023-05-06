@@ -3,7 +3,7 @@ python defenses/victim/train.py DTD vgg16_bn --out_path models/victim/DTD-vgg16_
 
 ################################ ImageNette ################################
 ### If you have multiple GPUs on the machine, use this to select the specific GPU
-dev_id=1
+dev_id=3
 ### p_v = victim model dataset
 p_v=ImageNette
 ### f_v = architecture of victim model

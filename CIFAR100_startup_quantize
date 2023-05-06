@@ -3,7 +3,7 @@ python defenses/victim/train.py CIFAR100 vgg16_bn --out_path models/victim/CIFAR
 
 ################################ CIFAR-100 ################################
 ### If you have multiple GPUs on the machine, use this to select the specific GPU
-dev_id=3
+dev_id=2
 ### p_v = victim model dataset
 p_v=CIFAR100
 ### f_v = architecture of victim model
@@ -31,8 +31,8 @@ pretrained=imagenet
 ### attack policy
 ## random
 policy=random
-hardlabel=0
-defense_aware=1
+hardlabel=1
+defense_aware=0
 
 # Lookup Table Attack
 recover_table_size=1000000
@@ -75,8 +75,8 @@ semi_dataset=${queryset}
 
 ### Defense strategy
 ## Quantization
-quantize=1
-quantize_epsilon=1.0
+quantize=0
+quantize_epsilon=0.0
 optim=0
 ydist=l1
 

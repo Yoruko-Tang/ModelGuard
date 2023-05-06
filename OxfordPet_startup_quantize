@@ -1,0 +1,88 @@
+# generate randomly initialized surrogate model
+python defenses/victim/train.py oxfordpet vgg16_bn --out_path models/victim/oxfordpet-vgg16_bn-train-nodefense-scratch-advproxy --device_id 0 --epochs 1 --train_subset 10 --lr 0.0
+
+################################ DTD ################################
+### If you have multiple GPUs on the machine, use this to select the specific GPU
+dev_id=3
+### p_v = victim model dataset
+p_v=OxfordIIITPet
+### f_v = architecture of victim model
+f_v=vgg16_bn
+### queryset = p_a = image pool of the attacker 
+queryset=ImageNet1k
+### Path to victim model's directory (the one downloded earlier)
+vic_dir=models/victim/${p_v}-${f_v}-train-nodefense
+### No. of images queried by the attacker. With 60k, attacker obtains 99.05% test accuracy on MNIST at eps=0.0.
+budget=50000 
+### Batch size of queries to process for the attacker
+batch_size=32
+### Training parameters
+lr=0.01
+lr_step=10
+lr_gamma=0.5
+epochs=30
+training_batch_size=32
+
+### pretrained model
+# use imagenet pretrained
+pretrained=imagenet
+
+
+### attack policy
+## random
+policy=random
+hardlabel=0
+defense_aware=0
+
+# Lookup Table Attack
+recover_table_size=1000000
+recover_norm=1
+recover_tolerance=0.01
+concentration_factor=8.0
+recover_proc=5
+policy_suffix="_da${defense_aware}_hard${hardlabel}"
+recover_params="table_size:${recover_table_size};recover_norm:${recover_norm};tolerance:${recover_tolerance};concentration_factor:${concentration_factor};recover_proc:${recover_proc}"
+
+## semisupervised setting
+semi_train_weight=0.0
+semi_dataset=${queryset}
+
+### Defense strategy
+## Quantization
+quantize=1
+quantize_epsilon=1.0
+optim=0
+ydist=l1
+
+# get centroids from query
+frozen=0
+quantize_args="epsilon:${quantize_epsilon};ydist:${ydist};optim:${optim};frozen:${frozen};ordered_quantization:1"
+
+## None
+strat=none
+# Output path to attacker's model
+out_dir=models/final_bb_dist/${p_v}-${f_v}/${policy}${policy_suffix}-${queryset}-B${budget}/none/quantize${quantize_epsilon}
+# Parameters to defense strategy, provided as a key:value pair string. 
+defense_args="out_path:${out_dir}"
+
+### Execution commands
+# (defense) train an original (blackbox) model
+python defenses/victim/train.py ${p_v} ${f_v} -o ${vic_dir} -b 64 -d ${dev_id} -e 100 -w 4 --lr 0.01 --lr_step 30 --lr_gamma 0.5 --pretrained ${pretrained}
+
+# (defense) AM training
+python defenses/victim/train_admis.py ${p_v} ${f_v} -o ${vic_dir} -b 64 -d ${dev_id} -e 100 -w 10 --lr 0.01 --lr_step 30 --lr_gamma 0.5 --pretrained ${pretrained} --oe_lamb ${oe_lamb} -doe ${oeset}
+
+# (defense) evaluate original model with defense on testset
+python defenses/victim/eval.py ${vic_dir} ${strat} ${defense_args} --out_dir ${out_dir} --batch_size ${batch_size} -d ${dev_id}
+
+# (adversarial) train shadow models
+python defenses/victim/train_shadow.py ${shadowset} ${shadow_model} -o ${shadow_path} -b 64 -d ${dev_id} -e 5 -w 10 --lr 0.01 --lr_step 3 --lr_gamma 0.5 --pretrained ${pretrained} --num_shadows ${num_shadows} --num_classes ${num_classes}
+
+# (adversary) generate transfer dataset (only when policy=random)
+python defenses/adversary/transfer.py ${policy} ${vic_dir} ${strat} ${defense_args} --out_dir ${out_dir} --batch_size ${batch_size} -d ${dev_id} --queryset ${queryset} --budget ${budget} --quantize ${quantize} --quantize_args ${quantize_args} --defense_aware ${defense_aware} --recover_args ${recover_params} --hardlabel ${hardlabel}
+
+# (adversary) train kickoffnet and evaluate
+python defenses/adversary/train.py ${out_dir} ${f_v} ${p_v} --budgets 50000 -e ${epochs} -b ${training_batch_size} --lr ${lr} --lr_step ${lr_step} --lr_gamma ${lr_gamma} -d ${dev_id} -w 4 --pretrained ${pretrained} --vic_dir ${vic_dir} --semitrainweight ${semi_train_weight} --semidataset ${semi_dataset} 
+
+# (adversary) use jbda/jbda-topk as attack policy
+python defenses/adversary/jacobian.py ${policy} ${vic_dir} ${strat} ${defense_args} --model_adv ${f_v} --pretrained imagenet --out_dir ${out_dir} --testset ${p_v} --batch_size 128 -d ${dev_id} --queryset ${queryset} --budget ${budget} --seedsize ${seedsize} --epsilon ${jb_epsilon} --T ${T} --train_epochs 20

@@ -18,6 +18,7 @@ from defenses.datasets.lisa import LISA
 from defenses.datasets.dtd import DTD
 from defenses.datasets.ImageNette import ImageNette
 from defenses.datasets.oxfordpet import OxfordIIITPet
+from defenses.datasets.stl10 import STL10
 
 
 
@@ -69,12 +70,12 @@ dataset_to_modelfamily = {
     'ImageNet1k': 'imagenet',
     'ImageFolder': 'imagenet',
     'DTD': 'imagenet',
-    'OxfordIIITPet': 'imagenet',
     'ImageNette': 'imagenet',
 
-
+    # special images
     'TinyImageNet200': 'tinyimagenet',
-
+    'STL10': 'cifar',
+    'OxfordIIITPet': 'oxfordpet',
     'LISA': 'lisa',
 }
 

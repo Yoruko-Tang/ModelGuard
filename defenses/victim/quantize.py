@@ -228,7 +228,7 @@ class incremental_kmeans():
         if len(centroids)==0 and not incremental:
             return None
         distances = torch.norm(centroids-prediction,p=self.norm,dim=1)
-        valid_cent = torch.arange(len(centroids))[distances<=self.epsilon]
+        valid_cent = torch.arange(len(centroids),device=self.device)[distances<=self.epsilon]
         if len(valid_cent)==0:
             # all centroids are far away from the new input, add new centroid
             if incremental:

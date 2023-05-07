@@ -244,12 +244,12 @@ class Table_Recover():
 
 
     @staticmethod
-    def get_perturbed_label_sample(blackbox,true_label_sample,xs=None,x_info_idxs=None,batch_size=32,output=None,count=None,proc_idx=None):
-        perturbed_label_sample = []
+    def get_perturbed_label_sample(blackbox,true_label_sample,xs=None,x_info_idxs=None,batch_size=32,output=None,count=None,proc_idx=None):    
         if count is None:
             pbar = tqdm(total=len(true_label_sample))
         #with tqdm(total=len(true_label_sample)) as pbar:
         if xs is None or x_info_idxs is None:
+            perturbed_label_sample = []
             for start_idx in range(0,len(true_label_sample),batch_size):
                 end_idx = min([start_idx+batch_size,len(true_label_sample)])
                 perturbed_label = blackbox.get_yprime(true_label_sample[start_idx:end_idx,:])
@@ -258,10 +258,16 @@ class Table_Recover():
                     count.value += len(perturbed_label)
                 else:
                     pbar.update(len(perturbed_label))
+            if output is not None and proc_idx is not None:
+                output[proc_idx] = torch.cat(perturbed_label_sample,dim=0)
+                return
+            else:
+                return torch.cat(perturbed_label_sample,dim=0)
         else:
             assert len(x_info_idxs) == len(true_label_sample), "The length of x_info_idxs must be equal to the length of true_label_sample!" 
             x_info_idxs_set = set(x_info_idxs)
             x_info_idxs = np.array(x_info_idxs)
+            perturbed_label_sample = torch.zeros_like(true_label_sample)
             for i in x_info_idxs_set:
                 x_i = xs[i].unsqueeze(0)
                 true_label_i = true_label_sample[x_info_idxs==i].to(blackbox.device)
@@ -269,27 +275,20 @@ class Table_Recover():
                 for start_idx in range(0,len(true_label_i),batch_size):
                     end_idx = min([start_idx+batch_size,len(true_label_i)])
                     perturbed_label = blackbox.get_yprime(true_label_i[start_idx:end_idx,:],x_info = x_info)
-                    # y_prime_dis = torch.cat([torch.norm(perturbed_label-true_label_i[start_idx:end_idx,:],p=2,dim=1,keepdim=True),torch.norm(perturbed_label-x_info.reshape([1,-1]),p=2,dim=1,keepdim=True)],dim=1)
-                    # y_prime_dis,_ = torch.min(y_prime_dis,dim=1)
-                    # print(torch.norm(perturbed_label-true_label_i[start_idx:end_idx,:],p=2,dim=1,keepdim=True))
-                    # print(torch.norm(perturbed_label-x_info.reshape([1,-1]),p=2,dim=1,keepdim=True))
-                    # print(y_prime_dis)
-                    # max_val,_ = torch.max(true_label_i[start_idx:end_idx,:],dim=1)
-                    # print(max_val)
-                    # input()
-                    perturbed_label_sample.append(perturbed_label.detach().cpu())
+                    perturbed_label_sample[x_info_idxs==i][start_idx:end_idx,:] = perturbed_label.detach().to(perturbed_label_sample)
                     if count is not None:
                         count.value += len(perturbed_label)
                     else:
                         pbar.update(len(perturbed_label))
+            if output is not None and proc_idx is not None:
+                output[proc_idx] = perturbed_label_sample
+                return
+            else:
+                return perturbed_label_sample
 
                 
 
-        if output is not None and proc_idx is not None:
-            output[proc_idx] = torch.cat(perturbed_label_sample,dim=0)
-            return
-        else:
-            return torch.cat(perturbed_label_sample,dim=0)
+        
 
 
     def get_perturbed_label_sample_parallel(self,blackbox,true_label_sample,xs=None,x_info_idxs=None,num_proc=10):

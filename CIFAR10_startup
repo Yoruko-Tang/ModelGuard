@@ -1,5 +1,5 @@
 # generate randomly initialized surrogate model
-python defenses/victim/train.py GTSRB vgg16_bn --out_path models/victim/GTSRB-vgg16_bn-train-nodefense-scratch-advproxy --device_id 0 --epochs 1 --train_subset 10 --lr 0.0
+python defenses/victim/train.py CIFAR10 vgg16_bn --out_path models/victim/CIFAR10-vgg16_bn-train-nodefense-scratch-advproxy --device_id 0 --epochs 1 --train_subset 10 --lr 0.0
 
 ################################ CIFAR10 ################################
 ### If you have multiple GPUs on the machine, use this to select the specific GPU
@@ -181,7 +181,7 @@ defense_args="rounding:${rounding};out_path:${out_dir}"
 
 ## reverse sigmoid
 strat=reverse_sigmoid
-beta=0.055
+beta=0.21
 gamma=0.2
 # Output path to attacker's model
 out_dir=models/final_bb_dist/${p_v}-${f_v}/${policy}${policy_suffix}-${queryset}-B${budget}/revsig/beta${beta}-gamma${gamma}-quantize${quantize_epsilon}

@@ -3,7 +3,7 @@ python defenses/victim/train.py CUBS200 resnet50 --out_path models/victim/CUBS20
 
 ################################ CUB200 ################################
 ### If you have multiple GPUs on the machine, use this to select the specific GPU
-dev_id=1
+dev_id=2
 ### p_v = victim model dataset
 p_v=CUBS200
 ### f_v = architecture of victim model

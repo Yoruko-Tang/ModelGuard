@@ -119,10 +119,12 @@ class Table_Recover():
                         x_info_idxs += list(range(len(estimation_input)))
                 true_label_sample = torch.cat(true_label_sample,dim=0)
                 table_size = table_size-len(true_label_sample)
-                if table_size < 0:
-                    true_label_sample = true_label_sample[np.random.choice(list(range(len(true_label_sample))),len(true_label_sample)+table_size,replace=False)]
+                if table_size < 0:# shrink the size of the table with random choice
+                    subset = np.random.choice(list(range(len(true_label_sample))),len(true_label_sample)+table_size,replace=False)
+                    true_label_sample = true_label_sample[subset]
+                    x_info_idxs = [x_info_idxs[i] for i in subset]
 
-            if table_size>0:
+            if table_size>0: # supplement the table with true labels generated from dirichlet distribution
                 if self.alpha is None and estimation_set is not None:
                     estimation_input,estimation_label = self.estimate_dir(estimation_set)
                     concentration = self.num_classes*self.concentration_factor
@@ -252,8 +254,8 @@ class Table_Recover():
             perturbed_label_sample = []
             for start_idx in range(0,len(true_label_sample),batch_size):
                 end_idx = min([start_idx+batch_size,len(true_label_sample)])
-                perturbed_label = blackbox.get_yprime(true_label_sample[start_idx:end_idx,:])
-                perturbed_label_sample.append(perturbed_label)
+                perturbed_label = blackbox.get_yprime(true_label_sample[start_idx:end_idx,:].to(blackbox.device))
+                perturbed_label_sample.append(perturbed_label.detach().to(true_label_sample))
                 if count is not None:
                     count.value += len(perturbed_label)
                 else:
@@ -270,12 +272,13 @@ class Table_Recover():
             perturbed_label_sample = torch.zeros_like(true_label_sample)
             for i in x_info_idxs_set:
                 x_i = xs[i].unsqueeze(0)
-                true_label_i = true_label_sample[x_info_idxs==i].to(blackbox.device)
+                index_i = np.arange(len(true_label_sample))[x_info_idxs==i]
+                true_label_i = true_label_sample[index_i].to(blackbox.device)
                 x_info = blackbox.get_xinfo(x_i) # the x_info could be too large to store, so we consider it one by one
                 for start_idx in range(0,len(true_label_i),batch_size):
                     end_idx = min([start_idx+batch_size,len(true_label_i)])
                     perturbed_label = blackbox.get_yprime(true_label_i[start_idx:end_idx,:],x_info = x_info)
-                    perturbed_label_sample[x_info_idxs==i][start_idx:end_idx,:] = perturbed_label.detach().to(perturbed_label_sample)
+                    perturbed_label_sample[index_i[start_idx:end_idx],:] = perturbed_label.detach().to(true_label_sample)
                     if count is not None:
                         count.value += len(perturbed_label)
                     else:
@@ -294,8 +297,8 @@ class Table_Recover():
     def get_perturbed_label_sample_parallel(self,blackbox,true_label_sample,xs=None,x_info_idxs=None,num_proc=10):
         print("Generating recover table with %d processes..."%num_proc)
         torch.multiprocessing.set_start_method('spawn',force=True)
-        if hasattr(blackbox,'cpu'):
-            blackbox.cpu()
+        # if hasattr(blackbox,'cpu'):
+        #     blackbox.cpu()
         with Manager() as manager:
             proc_data = np.array_split(true_label_sample,num_proc)
             if xs is not None and x_info_idxs is not None:
@@ -336,8 +339,8 @@ class Table_Recover():
             perturbed_label_sample = list(perturbed_label_output)
         res = torch.cat(perturbed_label_sample,dim=0)
         print("Ended multiprocessing with total number of samples = %d"%len(res))
-        if hasattr(blackbox,'to_blackbox_device'):
-            blackbox.to_blackbox_device()
+        # if hasattr(blackbox,'to_blackbox_device'):
+        #     blackbox.to_blackbox_device()
         return res
 
     def train_recover_nn(self,model,pert_label,true_label,epoch=20,batch_size=128,lr=1e-3):

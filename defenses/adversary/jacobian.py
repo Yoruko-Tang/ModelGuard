@@ -67,12 +67,15 @@ class JacobianAdversary:
         self.device = device
         self.out_dir = out_dir
         self.num_classes = len(self.testset.classes)
-        assert (aug_strategy in ['jbda', 'jbself']) or 'jbtop' in aug_strategy
+        assert (aug_strategy in ['jbda', 'jbself']) or 'jbtop' in aug_strategy or 'jbtr' in aug_strategy
         self.aug_strategy = aug_strategy
         self.topk = 0
+        self.k = 0
         if 'jbtop' in aug_strategy:
             # extract k from "jbtop<k>"
             self.topk = int(aug_strategy.replace('jbtop', ''))
+        if 'jbtr' in aug_strategy:
+            self.k = int(aug_strategy.replace('jbtr', ''))
 
         self.accuracies = []  # Track test accuracies over time
         self.useprobs = useprobs
@@ -101,7 +104,7 @@ class JacobianAdversary:
                     labels = torch.argmax(outputs, dim=1)
                     labels_onehot = make_one_hot(labels, outputs.shape[1])
                     outputs = labels_onehot
-                Dy.append(outputs)
+                Dy.append(outputs.detach().cpu())
                 self.Y_true.append(y_t_true.detach().cpu())
         Dy = torch.cat(Dy)
         self.Y_true = torch.cat(self.Y_true,dim=0)
@@ -139,9 +142,9 @@ class JacobianAdversary:
             self.model_adv = self.model_adv.to(self.device)
 
             # -------------------------- 1. Train model on D
-            self.model_adv = model_utils.train_model(self.model_adv, self.D, self.out_dir, 
+            self.model_adv = model_utils.train_model(self.model_adv, self.D, testset = self.testset,
                                                 checkpoint_suffix='.{}'.format(self.blackbox.call_count),
-                                                device=self.device, testset=self.testset, criterion_train=model_utils.soft_cross_entropy,
+                                                device=self.device, criterion_train=model_utils.soft_cross_entropy,
                                                 gt_model=self.blackbox.model,**opt_kargs)
 
             # -------------------------- 2. Evaluate model
@@ -154,6 +157,8 @@ class JacobianAdversary:
                 self.D = self.jacobian_augmentation(self.model_adv, rho_current,step_size=self.epsilon)
             elif self.aug_strategy == 'jbtop{}'.format(self.topk):
                 self.D = self.jacobian_augmentation_topk(self.model_adv, rho_current,step_size=self.epsilon,T=self.T)
+            elif self.aug_strategy == 'jbtr{}'.format(self.k):
+                self.D = self.jacobian_augmentation_tr(self.model_adv, rho_current,step_size=self.epsilon,T=self.T)
             else:
                 raise ValueError('Unrecognized augmentation strategy: "{}"'.format(self.aug_strategy))
 
@@ -165,9 +170,9 @@ class JacobianAdversary:
                 self.model_adv = zoo.get_net(self.model_adv_name, self.modelfamily, self.model_adv_pretrained,
                                         num_classes=self.num_classes)
                 self.model_adv = self.model_adv.to(self.device)
-                self.model_adv = model_utils.train_model(self.model_adv, self.D, self.out_dir,
+                self.model_adv = model_utils.train_model(self.model_adv, self.D, testset = self.testset,
                                                     checkpoint_suffix='.{}'.format(self.blackbox.call_count),
-                                                    device=self.device, testset=self.testset, criterion_train=model_utils.soft_cross_entropy,
+                                                    device=self.device, criterion_train=model_utils.soft_cross_entropy,
                                                     gt_model=self.blackbox.model,**opt_kargs)
                 break
 
@@ -213,7 +218,7 @@ class JacobianAdversary:
         X_aug = []
         Y_aug = []
         Y_true = []
-        for i, (X, Y) in enumerate(loader):
+        for X, Y in tqdm(loader):
             # Get augmented inputs
             X, Y = X.to(self.device), Y.to(self.device)
             delta_i = self.fgsm_untargeted(model_adv, X, Y.argmax(dim=1), device=self.device, epsilon=step_size)
@@ -293,7 +298,7 @@ class JacobianAdversary:
         X_aug = []
         Y_aug = []
         Y_true = []
-        for i, (X, Y) in enumerate(loader):
+        for X, Y in tqdm(loader):
             # assert X.shape[0] == Y.shape[0] == 1, 'Only supports batch_size = 1'
             X, Y = X.to(self.device), Y.to(self.device)
             Y_pred = model_adv(X)
@@ -322,7 +327,81 @@ class JacobianAdversary:
         X_aug = torch.cat(X_aug, dim=0)
         Y_aug = torch.cat(Y_aug, dim=0)
         Y_true = torch.cat(Y_true,dim=0)
-        self.Y_true = torch.cat(self.Y_true,Y_true,dim=0)
+        self.Y_true = torch.cat([self.Y_true,Y_true],dim=0)
+
+        if self.label_recover is not None:
+            print("=> Start to recover the clean labels!")
+            self.label_recover.generate_lookup_table(load_path=osp.join(self.blackbox.out_path, 'recover_table.pickle'),
+                                                    estimation_set = [X_aug,Y_true],
+                                                    table_size=int(len(self.Y_true)/self.budget*self.label_recover.table_size))
+            with tqdm(total=len(Y_aug)) as pbar:
+                Y_aug = self.label_recover(Y_aug,pbar) # recover the whole transfer set together to reduce cpu-gpu convert
+                Y_aug = Y_aug.to(self.Y_true)
+                l1_max, l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std = self.blackbox.calc_query_distances([[Y_true,Y_aug],])
+                with open(self.log_path, 'a') as af:
+                    test_cols = [len(self.Y_true), l1_max, l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std]
+                    af.write('\t'.join([str(c) for c in test_cols]) + '\n')
+
+
+        Dx_augmented = torch.cat([self.D.tensors[0], X_aug])[:self.budget]
+        Dy_augmented = torch.cat([self.D.tensors[1], Y_aug])[:self.budget]
+        D_augmented = TensorDataset(Dx_augmented, Dy_augmented)
+
+        return D_augmented
+
+    def jacobian_augmentation_tr(self, model_adv, rho_current, step_size=0.1,T=4):
+        if (self.kappa is not None) and (rho_current >= self.sigma):
+            D_sampled = self.rand_sample(self.D, self.kappa)
+        else:
+            D_sampled = deepcopy(self.D)
+
+        if (len(D_sampled) * self.k) + self.blackbox.call_count >= self.budget:
+            # Reduce augmented data size to match query budget
+            nqueries_remaining = self.budget - self.blackbox.call_count
+            nqueries_remaining /= self.k
+            nqueries_remaining = int(np.ceil(nqueries_remaining))
+            assert nqueries_remaining >= 0
+            print('=> Reducing augmented input size ({}*{} -> {}*{}={}) to stay within query budget.'.format(
+                D_sampled.tensors[0].shape[0], self.k, nqueries_remaining, self.k,
+                nqueries_remaining * self.k))
+            # D_sampled = TensorDataset(D_sampled.tensors[0][:nqueries_remaining],
+            #                           D_sampled.tensors[1][:nqueries_remaining])
+            D_sampled = self.rand_sample(D_sampled,nqueries_remaining)
+
+        # if self.tau is not None:
+        #     step_size = step_size * ((-1) ** (round(rho_current / self.tau)))
+
+        print('=> Augmentation set size = {} (|D| = {}, B = {})'.format(len(D_sampled), len(self.D),
+                                                                        self.blackbox.call_count))
+        loader = DataLoader(D_sampled, batch_size=self.query_batch_size, shuffle=False)
+        X_aug = []
+        Y_aug = []
+        Y_true = []
+        for X, Y in tqdm(loader):
+            # assert X.shape[0] == Y.shape[0] == 1, 'Only supports batch_size = 1'
+            X, Y = X.to(self.device), Y.to(self.device)
+
+            for c in range(self.k):
+                delta_i = self.pgd_linf_tr(model_adv, X, self.num_classes, epsilon=step_size, alpha=step_size*1.85/T,num_iter=T,
+                                             device=self.device)
+                Y_i,y_t_true = self.blackbox(X + delta_i,return_origin=True)
+
+                if not self.useprobs:
+                    labels = torch.argmax(Y_i, dim=1)
+                    labels_onehot = make_one_hot(labels, Y_i.shape[1])
+                    Y_i = labels_onehot
+
+                X_aug.append((X + delta_i).detach().cpu().clone())
+                Y_aug.append(Y_i.detach().cpu().clone())
+                Y_true.append(y_t_true.detach().cpu())
+
+            if self.blackbox.call_count >= self.budget:
+                break
+
+        X_aug = torch.cat(X_aug, dim=0)
+        Y_aug = torch.cat(Y_aug, dim=0)
+        Y_true = torch.cat(Y_true,dim=0)
+        self.Y_true = torch.cat([self.Y_true,Y_true],dim=0)
 
         if self.label_recover is not None:
             print("=> Start to recover the clean labels!")
@@ -386,6 +465,27 @@ class JacobianAdversary:
                 delta.grad.zero_()
             return delta.detach()
 
+    @staticmethod
+    def pgd_linf_tr(model, inputs, num_classes, epsilon, alpha, device, num_iter=8):
+        """ Construct targeted adversarial examples on the examples X"""
+        if epsilon == 0:
+            return torch.zeros_like(inputs)
+
+        model.eval()
+        with torch.enable_grad():
+            inputs = inputs.to(device)
+            delta = torch.zeros_like(inputs, requires_grad=True).to(device)
+            for t in range(num_iter):
+                out = model(inputs + delta)
+                y_targ = np.random.choice(range(num_classes),len(inputs)) # randomly select a target
+                y_targ = torch.tensor(y_targ,dtype=torch.long,device=device)
+                loss = F.cross_entropy(out,y_targ)
+                loss.backward()
+                delta.data = (delta - alpha * delta.grad.detach().sign()).clamp(-epsilon, epsilon)
+                delta.data = torch.min(torch.max(delta, -inputs),1 - inputs)
+                delta.grad.zero_()
+            return delta.detach()
+
 
 def main():
     parser = argparse.ArgumentParser(description='Jacobian Model Stealing Attack')
@@ -407,8 +507,8 @@ def main():
     parser.add_argument('--pretrained', metavar='STR', type=str, help='Assumption of F_A', default=None)
     parser.add_argument('--out_dir', metavar='PATH', type=str,
                         help='Destination directory to store transfer set', required=True)
-    parser.add_argument('--testset', metavar='TYPE', type=str, help='Blackbox testset (P_V(X))', required=True)
-    parser.add_argument('--query_batch_size', metavar='TYPE', type=str, help='Batch size of queries',default=32)
+    parser.add_argument('--testdataset', metavar='TYPE', type=str, help='Blackbox testset (P_V(X))', required=True)
+    parser.add_argument('--query_batch_size', metavar='TYPE', type=int, help='Batch size of queries',default=32)
 
     # ----------- Params for Jacobian-based augmentation
     parser.add_argument('--budget', metavar='N', type=int, help='Query limit to blackbox', default=10000)
@@ -474,7 +574,7 @@ def main():
     seedset = Subset(queryset, subset_idxs)
 
     # ----------- Set up testset
-    testset_name = params['testset']
+    testset_name = params['testdataset']
     if testset_name not in valid_datasets:
         raise ValueError('Dataset not found. Valid arguments = {}'.format(valid_datasets))
     modelfamily = datasets.dataset_to_modelfamily[testset_name]

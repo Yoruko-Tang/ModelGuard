@@ -33,7 +33,7 @@ pretrained=imagenet
 ## random
 policy=random
 hardlabel=0
-defense_aware=0
+defense_aware=1
 
 # Lookup Table Attack
 recover_table_size=1000000

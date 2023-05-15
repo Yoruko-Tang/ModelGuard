@@ -12,8 +12,6 @@ f_v=resnet50
 queryset=ImageNet1k
 ### Path to victim model's directory (the one downloded earlier)
 vic_dir=models/victim/${p_v}-${f_v}-train-nodefense
-### No. of images queried by the attacker. With 60k, attacker obtains 99.05% test accuracy on MNIST at eps=0.0.
-budget=50000 
 ### Batch size of queries to process for the attacker
 batch_size=32
 ### Training parameters
@@ -31,8 +29,19 @@ pretrained=imagenet
 ### attack policy
 ## random
 policy=random
+budget=50000 
+
+## jbda/jbself/jbtop
+policy=jbtr3
+budget=100000 
+seedsize=1000
+jb_epsilon=0.1
+T=8
+
+
+## adaptive setting
 hardlabel=0
-defense_aware=1
+defense_aware=0
 
 # Lookup Table Attack
 recover_table_size=1000000
@@ -61,13 +70,6 @@ recover_table_size=1000000
 recover_proc=5
 policy_suffix="_vddae${defense_aware}_hard${hardlabel}"
 recover_params="table_size:${recover_table_size};shadow_path:${shadow_path};recover_proc:${recover_proc};recover_nn:1"
-
-## jbda/jbself/jbtop
-policy=jbda
-seedsize=500
-jb_epsilon=0.1
-T=8
-policy_suffix="_ss${seedsize}_eps${jb_epsilon}"
 
 ## semisupervised setting
 semi_train_weight=0.0
@@ -216,4 +218,4 @@ python defenses/adversary/transfer.py ${policy} ${vic_dir} ${strat} ${defense_ar
 python defenses/adversary/train.py ${out_dir} ${f_v} ${p_v} --budgets 50000 -e ${epochs} -b ${training_batch_size} --lr ${lr} --lr_step ${lr_step} --lr_gamma ${lr_gamma} -d ${dev_id} -w 4 --pretrained ${pretrained} --vic_dir ${vic_dir} --semitrainweight ${semi_train_weight} --semidataset ${semi_dataset} 
 
 # (adversary) use jbda/jbda-topk as attack policy
-python defenses/adversary/jacobian.py ${policy} ${vic_dir} ${strat} ${defense_args} --quantize ${quantize} --quantize_args ${quantize_args} --defense_aware ${defense_aware} --recover_args ${recover_params} --hardlabel ${hardlabel} --model_adv ${f_v} --pretrained ${pretrained} --out_dir ${out_dir} --testset ${p_v} -d ${dev_id} --queryset ${queryset} --query_batch_size ${batch_size} --budget ${budget} -e ${epochs} -b ${training_batch_size} --lr ${lr} --lr_step ${lr_step} --lr_gamma ${lr_gamma} --seedsize ${seedsize} --epsilon ${jb_epsilon} --T ${T} 
+python defenses/adversary/jacobian.py ${policy} ${vic_dir} ${strat} ${defense_args} --quantize ${quantize} --quantize_args ${quantize_args} --defense_aware ${defense_aware} --recover_args ${recover_params} --hardlabel ${hardlabel} --model_adv ${f_v} --pretrained ${pretrained} --out_dir ${out_dir} --testdataset ${p_v} -d ${dev_id} --queryset ${queryset} --query_batch_size ${batch_size} --budget ${budget} -e ${epochs} -b ${training_batch_size} --lr ${lr} --lr_step ${lr_step} --lr_gamma ${lr_gamma} --seedsize ${seedsize} --epsilon ${jb_epsilon} --T ${T} 

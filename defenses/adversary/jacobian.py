@@ -94,6 +94,7 @@ class JacobianAdversary:
         Dx = torch.cat([self.seedset[i][0].unsqueeze(0) for i in range(len(self.seedset))])
         Dy = []
         self.Y_true = []
+        self.ori_Y = []
 
         # Populate Dy
         with torch.no_grad():
@@ -107,6 +108,7 @@ class JacobianAdversary:
                 Dy.append(outputs.detach().cpu())
                 self.Y_true.append(y_t_true.detach().cpu())
         Dy = torch.cat(Dy)
+        self.ori_Y = Dy.clone()
         self.Y_true = torch.cat(self.Y_true,dim=0)
         if self.label_recover is not None:
             print("=> Start to recover the clean labels!")
@@ -248,25 +250,29 @@ class JacobianAdversary:
         Y_aug = torch.cat(Y_aug, dim=0)
         Y_true = torch.cat(Y_true,dim=0)
         self.Y_true = torch.cat([self.Y_true,Y_true],dim=0)
+        self.ori_Y = torch.cat([self.ori_Y,Y_aug],dim=0)# unrecovered labels
 
         if self.label_recover is not None:
             print("=> Start to recover the clean labels!")
             self.label_recover.generate_lookup_table(load_path=osp.join(self.blackbox.out_path, 'recover_table.pickle'),
                                                     estimation_set = [X_aug,Y_true],
-                                                    table_size=int(len(self.Y_true)/self.budget*self.label_recover.table_size))
-            with tqdm(total=len(Y_aug)) as pbar:
-                Y_aug = self.label_recover(Y_aug,pbar) # recover the whole transfer set together to reduce cpu-gpu convert
-                Y_aug = Y_aug.to(self.Y_true)
-                l1_max, l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std = self.blackbox.calc_query_distances([[Y_true,Y_aug],])
+                                                    table_size=int(len(self.Y_true)/self.budget*self.label_recover.table_size),load_nn=False)
+            with tqdm(total=len(self.ori_Y)) as pbar:
+                Y_recover = self.label_recover(self.ori_Y,pbar) # recover the whole transfer set (including previous labels)
+                Y_recover = Y_recover.to(self.Y_true)
+                l1_max, l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std = self.blackbox.calc_query_distances([[self.Y_true,Y_recover],])
                 with open(self.log_path, 'a') as af:
                     test_cols = [len(self.Y_true), l1_max, l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std]
                     af.write('\t'.join([str(c) for c in test_cols]) + '\n')
+            Dx_augmented = torch.cat([self.D.tensors[0], X_aug])[:self.budget]
+            Dy_augmented = Y_recover.detach().cpu()[:self.budget]
+            D_augmented = TensorDataset(Dx_augmented, Dy_augmented)
 
 
-
-        Dx_augmented = torch.cat([self.D.tensors[0], X_aug])[:self.budget]
-        Dy_augmented = torch.cat([self.D.tensors[1], Y_aug])[:self.budget]
-        D_augmented = TensorDataset(Dx_augmented, Dy_augmented)
+        else:
+            Dx_augmented = torch.cat([self.D.tensors[0], X_aug])[:self.budget]
+            Dy_augmented = torch.cat([self.D.tensors[1], Y_aug])[:self.budget]
+            D_augmented = TensorDataset(Dx_augmented, Dy_augmented)
 
         return D_augmented
 
@@ -328,24 +334,29 @@ class JacobianAdversary:
         Y_aug = torch.cat(Y_aug, dim=0)
         Y_true = torch.cat(Y_true,dim=0)
         self.Y_true = torch.cat([self.Y_true,Y_true],dim=0)
+        self.ori_Y = torch.cat([self.ori_Y,Y_aug],dim=0)# unrecovered labels
 
         if self.label_recover is not None:
             print("=> Start to recover the clean labels!")
             self.label_recover.generate_lookup_table(load_path=osp.join(self.blackbox.out_path, 'recover_table.pickle'),
                                                     estimation_set = [X_aug,Y_true],
-                                                    table_size=int(len(self.Y_true)/self.budget*self.label_recover.table_size))
-            with tqdm(total=len(Y_aug)) as pbar:
-                Y_aug = self.label_recover(Y_aug,pbar) # recover the whole transfer set together to reduce cpu-gpu convert
-                Y_aug = Y_aug.to(self.Y_true)
-                l1_max, l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std = self.blackbox.calc_query_distances([[Y_true,Y_aug],])
+                                                    table_size=int(len(self.Y_true)/self.budget*self.label_recover.table_size),load_nn=False)
+            with tqdm(total=len(self.ori_Y)) as pbar:
+                Y_recover = self.label_recover(self.ori_Y,pbar) # recover the whole transfer set (including previous labels)
+                Y_recover = Y_recover.to(self.Y_true)
+                l1_max, l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std = self.blackbox.calc_query_distances([[self.Y_true,Y_recover],])
                 with open(self.log_path, 'a') as af:
                     test_cols = [len(self.Y_true), l1_max, l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std]
                     af.write('\t'.join([str(c) for c in test_cols]) + '\n')
+            Dx_augmented = torch.cat([self.D.tensors[0], X_aug])[:self.budget]
+            Dy_augmented = Y_recover.detach().cpu()[:self.budget]
+            D_augmented = TensorDataset(Dx_augmented, Dy_augmented)
 
 
-        Dx_augmented = torch.cat([self.D.tensors[0], X_aug])[:self.budget]
-        Dy_augmented = torch.cat([self.D.tensors[1], Y_aug])[:self.budget]
-        D_augmented = TensorDataset(Dx_augmented, Dy_augmented)
+        else:
+            Dx_augmented = torch.cat([self.D.tensors[0], X_aug])[:self.budget]
+            Dy_augmented = torch.cat([self.D.tensors[1], Y_aug])[:self.budget]
+            D_augmented = TensorDataset(Dx_augmented, Dy_augmented)
 
         return D_augmented
 
@@ -402,24 +413,30 @@ class JacobianAdversary:
         Y_aug = torch.cat(Y_aug, dim=0)
         Y_true = torch.cat(Y_true,dim=0)
         self.Y_true = torch.cat([self.Y_true,Y_true],dim=0)
+        self.ori_Y = torch.cat([self.ori_Y,Y_aug],dim=0)# unrecovered labels
 
         if self.label_recover is not None:
             print("=> Start to recover the clean labels!")
             self.label_recover.generate_lookup_table(load_path=osp.join(self.blackbox.out_path, 'recover_table.pickle'),
                                                     estimation_set = [X_aug,Y_true],
-                                                    table_size=int(len(self.Y_true)/self.budget*self.label_recover.table_size))
-            with tqdm(total=len(Y_aug)) as pbar:
-                Y_aug = self.label_recover(Y_aug,pbar) # recover the whole transfer set together to reduce cpu-gpu convert
-                Y_aug = Y_aug.to(self.Y_true)
-                l1_max, l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std = self.blackbox.calc_query_distances([[Y_true,Y_aug],])
+                                                    table_size=int(len(self.Y_true)/self.budget*self.label_recover.table_size),load_nn=False)
+            with tqdm(total=len(self.ori_Y)) as pbar:
+                Y_recover = self.label_recover(self.ori_Y,pbar) # recover the whole transfer set (including previous labels)
+                Y_recover = Y_recover.to(self.Y_true)
+                l1_max, l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std = self.blackbox.calc_query_distances([[self.Y_true,Y_recover],])
                 with open(self.log_path, 'a') as af:
                     test_cols = [len(self.Y_true), l1_max, l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std]
                     af.write('\t'.join([str(c) for c in test_cols]) + '\n')
+            Dx_augmented = torch.cat([self.D.tensors[0], X_aug])[:self.budget]
+            Dy_augmented = Y_recover.detach().cpu()[:self.budget]
+            D_augmented = TensorDataset(Dx_augmented, Dy_augmented)
 
 
-        Dx_augmented = torch.cat([self.D.tensors[0], X_aug])[:self.budget]
-        Dy_augmented = torch.cat([self.D.tensors[1], Y_aug])[:self.budget]
-        D_augmented = TensorDataset(Dx_augmented, Dy_augmented)
+        else:
+            Dx_augmented = torch.cat([self.D.tensors[0], X_aug])[:self.budget]
+            Dy_augmented = torch.cat([self.D.tensors[1], Y_aug])[:self.budget]
+            D_augmented = TensorDataset(Dx_augmented, Dy_augmented)
+
 
         return D_augmented
 

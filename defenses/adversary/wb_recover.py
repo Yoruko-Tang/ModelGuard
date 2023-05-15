@@ -77,7 +77,7 @@ class Table_Recover():
         
         
 
-    def generate_lookup_table(self,load_path=None,estimation_set=None,table_size=None):
+    def generate_lookup_table(self,load_path=None,estimation_set=None,table_size=None,load_nn=False):
         if table_size is None:
             table_size = self.table_size
         if load_path is not None:
@@ -182,7 +182,7 @@ class Table_Recover():
 
             self.nn.to(self.device)
             model_out_path = self.log_path = osp.join(self.blackbox.out_path, 'recover_nn.pt')
-            if osp.exists(model_out_path):
+            if osp.exists(model_out_path) and load_nn:
                 print("Load existing generative model at "+model_out_path)
                 self.nn.load_state_dict(torch.load(model_out_path))
             else:

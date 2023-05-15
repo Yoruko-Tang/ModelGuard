@@ -28,7 +28,7 @@ budget=50000
 
 ## jbda/jbself/jbtop
 policy=jbtr3
-budget=100000 
+budget=50000 
 seedsize=1000
 jb_epsilon=0.1
 T=8

@@ -52,7 +52,6 @@ recover_proc=5
 policy_suffix="_da${defense_aware}_hard${hardlabel}"
 recover_params="table_size:${recover_table_size};recover_norm:${recover_norm};tolerance:${recover_tolerance};concentration_factor:${concentration_factor};recover_proc:${recover_proc}"
 
-
 # D-DAE Attack
 recover_table_size=1000000
 concentration_factor=8.0
@@ -71,9 +70,11 @@ recover_proc=5
 policy_suffix="_vddae${defense_aware}_hard${hardlabel}"
 recover_params="table_size:${recover_table_size};shadow_path:${shadow_path};recover_proc:${recover_proc};recover_nn:1"
 
+
 ## semisupervised setting
 semi_train_weight=0.0
 semi_dataset=${queryset}
+
 
 ### Defense strategy
 ## Quantization

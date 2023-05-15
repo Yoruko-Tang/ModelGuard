@@ -12,8 +12,6 @@ f_v=vgg16_bn
 queryset=TinyImageNet200
 ### Path to victim model's directory (the one downloded earlier)
 vic_dir=models/victim/${p_v}-${f_v}-train-nodefense
-### No. of images queried by the attacker. With 60k, attacker obtains 99.05% test accuracy on MNIST at eps=0.0.
-budget=50000 
 ### Batch size of queries to process for the attacker
 batch_size=32
 ### Training parameters
@@ -32,8 +30,19 @@ pretrained=imagenet
 ### attack policy
 ## random
 policy=random
+budget=50000 
+
+## jbda/jbself/jbtop
+policy=jbtr3
+budget=100000 
+seedsize=1000
+jb_epsilon=0.1
+T=8
+
+
+## adaptive setting
 hardlabel=0
-defense_aware=1
+defense_aware=0
 
 # Lookup Table Attack
 recover_table_size=1000000
@@ -44,11 +53,10 @@ recover_proc=5
 policy_suffix="_da${defense_aware}_hard${hardlabel}"
 recover_params="table_size:${recover_table_size};recover_norm:${recover_norm};tolerance:${recover_tolerance};concentration_factor:${concentration_factor};recover_proc:${recover_proc}"
 
-
 # D-DAE Attack
 recover_table_size=1000000
 concentration_factor=8.0
-recover_proc=10
+recover_proc=5
 policy_suffix="_ddae${defense_aware}_hard${hardlabel}"
 recover_params="table_size:${recover_table_size};concentration_factor:${concentration_factor};recover_proc:${recover_proc};recover_nn:1"
 
@@ -62,13 +70,6 @@ recover_table_size=1000000
 recover_proc=5
 policy_suffix="_vddae${defense_aware}_hard${hardlabel}"
 recover_params="table_size:${recover_table_size};shadow_path:${shadow_path};recover_proc:${recover_proc};recover_nn:1"
-
-## jbda/jbself/jbtop
-policy=jbtop3
-seedsize=500
-jb_epsilon=0.1
-T=8
-policy_suffix="ss${seedsize}_eps${jb_epsilon}"
 
 ## semisupervised setting
 semi_train_weight=0.0

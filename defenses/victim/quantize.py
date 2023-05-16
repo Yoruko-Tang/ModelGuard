@@ -20,6 +20,7 @@ from pulp import *
 class incremental_kmeans():
     def __init__(self,blackbox,epsilon,ydist='l1',optim=False,trainingset_name=None,frozen = False,ordered_quantization=True,kmean=False,buffer_size=None):
         self.blackbox = blackbox
+        self.model = self.blackbox.model
         self.device = self.blackbox.device
         self.out_path = self.blackbox.out_path
         self.num_classes = self.blackbox.num_classes

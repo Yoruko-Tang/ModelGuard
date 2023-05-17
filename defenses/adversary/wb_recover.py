@@ -139,8 +139,9 @@ class Table_Recover():
                     concentration = self.num_classes*self.concentration_factor
                     alpha = estimation_label*concentration# The std of dirichlet distribution is prop to 1/sqrt(concentration)
                     # x_infos = self.blackbox.get_xinfo(estimation_input)
-                else:
+                else: 
                     estimation_input = None
+                    alpha = None
                 
                 true_label_sample_dir,x_info_idxs_dir = self.get_dirichlet_samples(alpha,table_size)
                 if len(true_label_sample)==0:

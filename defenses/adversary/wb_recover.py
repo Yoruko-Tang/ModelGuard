@@ -52,7 +52,7 @@ class Recover_NN(nn.Module):
 
 class Table_Recover():
     max_sample_size=5000000
-    def __init__(self,blackbox,table_size=1000000,batch_size=1,epsilon=None,perturb_norm=1,recover_mean=True,recover_norm=2,tolerance=1e-4,concentration_factor=4.0,shadow_path=None,recover_nn=False,alpha=None,recover_proc=1):
+    def __init__(self,blackbox,table_size=1000000,batch_size=1,epsilon=None,perturb_norm=1,recover_mean=True,recover_norm=2,tolerance=1e-4,concentration_factor=4.0,shadow_path=None,recover_nn=False,recover_proc=1):
         self.table_size = table_size
         self.blackbox = blackbox
         self.num_classes = self.blackbox.num_classes
@@ -71,10 +71,19 @@ class Table_Recover():
         else:
             self.shadow_generate=False
         self.recover_nn = bool(recover_nn)
-        self.alpha = alpha
+
         self.num_proc = recover_proc
         self.true_label_sample,self.perturbed_label_sample = None, None
-        
+        if not self.recover_nn:
+            self.log_path = osp.join(self.blackbox.out_path, 'recover_distance{}.log.tsv'.format(self.blackbox.log_prefix))
+            self.logger = csv.writer(open(self.log_path,'a'),delimiter='\t')
+            self.logger.writerow(['call count','recover distance mean', 'recover distance std'])
+            self.call_count = 0
+        else:
+            self.log_path = osp.join(self.blackbox.out_path, 'recover_nn_training.log.tsv')
+            self.logger = csv.writer(open(self.log_path,'a'),delimiter='\t')
+            self.logger.writerow(['Epoch','Loss', 'L2 Distance'])
+    
         
 
     def generate_lookup_table(self,load_path=None,estimation_set=None,table_size=None,load_nn=False):
@@ -89,14 +98,14 @@ class Table_Recover():
                         self.true_label_sample,self.perturbed_label_sample = self.true_label_sample[:table_size,:],self.perturbed_label_sample[:table_size,:]
                         table_size = 0
                     else:
-                        table_size = table_size-len(self.true_label_sample)
-                        print("Supplementing existing table with {} samples...".format(table_size))
-                               
+                        print("Supplementing existing table with {} samples...".format(table_size-len(self.true_label_sample)))
+        if self.true_label_sample is not None:
+            table_size -= len(self.true_label_sample)
         if table_size>0:
             print("Building Recover Table! Total Samples Number={}!".format(table_size))
             true_label_sample = []
             x_info_idxs = []
-            if self.shadow_generate:
+            if self.shadow_generate: # generate true labels with shadow models
                 print("Use shadow models for generation!")
                 assert estimation_set is not None, "The esitimation set cannot by None when using shadow models for true prediction generation!"
                 estimation_input,_ = self.estimate_dir(estimation_set)
@@ -125,15 +134,15 @@ class Table_Recover():
                     x_info_idxs = [x_info_idxs[i] for i in subset]
 
             if table_size>0: # supplement the table with true labels generated from dirichlet distribution
-                if self.alpha is None and estimation_set is not None:
+                if estimation_set is not None:
                     estimation_input,estimation_label = self.estimate_dir(estimation_set)
                     concentration = self.num_classes*self.concentration_factor
-                    self.alpha = estimation_label*concentration# The std of dirichlet distribution is prop to 1/sqrt(concentration)
+                    alpha = estimation_label*concentration# The std of dirichlet distribution is prop to 1/sqrt(concentration)
                     # x_infos = self.blackbox.get_xinfo(estimation_input)
                 else:
                     estimation_input = None
                 
-                true_label_sample_dir,x_info_idxs_dir = self.get_dirichlet_samples(self.alpha,table_size)
+                true_label_sample_dir,x_info_idxs_dir = self.get_dirichlet_samples(alpha,table_size)
                 if len(true_label_sample)==0:
                     true_label_sample = true_label_sample_dir
                 else:
@@ -154,8 +163,8 @@ class Table_Recover():
             if self.true_label_sample is None or self.perturbed_label_sample is None:
                 self.true_label_sample,self.perturbed_label_sample = true_label_sample,perturbed_label_sample
             else:
-                self.true_label_sample = torch.cat([self.true_label_sample,true_label_sample],dim=0)
-                self.perturbed_label_sample = torch.cat([self.perturbed_label_sample,perturbed_label_sample],dim=0)
+                self.true_label_sample = torch.cat([self.true_label_sample,true_label_sample.to(self.true_label_sample)],dim=0)
+                self.perturbed_label_sample = torch.cat([self.perturbed_label_sample,perturbed_label_sample.to(self.perturbed_label_sample)],dim=0)
  
             print("Recover Table Completed!")
         
@@ -171,10 +180,7 @@ class Table_Recover():
         if not self.recover_nn:
             if self.top1_recover:
                 self.true_top1 = torch.argmax(self.true_label_sample,dim=1).to(self.device)
-            self.log_path = osp.join(self.blackbox.out_path, 'recover_distance{}.log.tsv'.format(self.blackbox.log_prefix))
-            self.logger = csv.writer(open(self.log_path,'w'),delimiter='\t')
-            self.logger.writerow(['call count','recover distance mean', 'recover distance std'])
-            self.call_count = 0
+            
         else:
             self.nn = Recover_NN(self.num_classes)
             print("Generative Model:")
@@ -186,12 +192,8 @@ class Table_Recover():
                 print("Load existing generative model at "+model_out_path)
                 self.nn.load_state_dict(torch.load(model_out_path))
             else:
-                print("Training NN for Recovering!")
-                self.log_path = osp.join(self.blackbox.out_path, 'recover_nn_training.log.tsv')
-                self.logger = csv.writer(open(self.log_path,'w'),delimiter='\t')
-                self.logger.writerow(['Epoch','Loss', 'L2 Distance'])
-                self.nn = self.train_recover_nn(self.nn,self.perturbed_label_sample,self.true_label_sample,epoch=200,batch_size=1024,lr=1e-2)
-                
+                print("Training NN for Recovering!")  
+                self.nn = self.train_recover_nn(self.nn,self.perturbed_label_sample,self.true_label_sample,epoch=200,batch_size=1024,lr=1e-2) 
                 torch.save(self.nn.state_dict(), model_out_path)
                 
             

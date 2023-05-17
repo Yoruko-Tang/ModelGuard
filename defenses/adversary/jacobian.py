@@ -112,8 +112,7 @@ class JacobianAdversary:
         self.Y_true = torch.cat(self.Y_true,dim=0)
         if self.label_recover is not None:
             print("=> Start to recover the clean labels!")
-            self.label_recover.generate_lookup_table(load_path=osp.join(self.blackbox.out_path, 'recover_table.pickle'),
-                                                     estimation_set = [Dx,self.Y_true],table_size=int(len(Dy)/self.budget*self.label_recover.table_size))
+            self.label_recover.generate_lookup_table(estimation_set = [Dx,self.Y_true],table_size=int(len(Dy)/self.budget*self.label_recover.table_size))
             with tqdm(total=len(Dy)) as pbar:
                 Dy = self.label_recover(Dy,pbar) # recover the whole transfer set together to reduce cpu-gpu convert
                 Dy = Dy.to(self.Y_true)
@@ -254,9 +253,7 @@ class JacobianAdversary:
 
         if self.label_recover is not None:
             print("=> Start to recover the clean labels!")
-            self.label_recover.generate_lookup_table(load_path=osp.join(self.blackbox.out_path, 'recover_table.pickle'),
-                                                    estimation_set = [X_aug,Y_true],
-                                                    table_size=int(len(self.Y_true)/self.budget*self.label_recover.table_size),load_nn=False)
+            self.label_recover.generate_lookup_table(estimation_set = [X_aug,Y_true],table_size=int(len(self.Y_true)/self.budget*self.label_recover.table_size))
             with tqdm(total=len(self.ori_Y)) as pbar:
                 Y_recover = self.label_recover(self.ori_Y,pbar) # recover the whole transfer set (including previous labels)
                 Y_recover = Y_recover.to(self.Y_true)
@@ -338,9 +335,7 @@ class JacobianAdversary:
 
         if self.label_recover is not None:
             print("=> Start to recover the clean labels!")
-            self.label_recover.generate_lookup_table(load_path=osp.join(self.blackbox.out_path, 'recover_table.pickle'),
-                                                    estimation_set = [X_aug,Y_true],
-                                                    table_size=int(len(self.Y_true)/self.budget*self.label_recover.table_size),load_nn=False)
+            self.label_recover.generate_lookup_table(estimation_set = [X_aug,Y_true],table_size=int(len(self.Y_true)/self.budget*self.label_recover.table_size))
             with tqdm(total=len(self.ori_Y)) as pbar:
                 Y_recover = self.label_recover(self.ori_Y,pbar) # recover the whole transfer set (including previous labels)
                 Y_recover = Y_recover.to(self.Y_true)
@@ -417,10 +412,9 @@ class JacobianAdversary:
 
         if self.label_recover is not None:
             print("=> Start to recover the clean labels!")
-            self.label_recover.generate_lookup_table(load_path=osp.join(self.blackbox.out_path, 'recover_table.pickle'),
-                                                    estimation_set = [X_aug,Y_true],
-                                                    table_size=int(len(self.Y_true)/self.budget*self.label_recover.table_size),load_nn=False)
+            self.label_recover.generate_lookup_table(estimation_set = [X_aug,Y_true],table_size=int(len(self.Y_true)/self.budget*self.label_recover.table_size))
             with tqdm(total=len(self.ori_Y)) as pbar:
+                #Y_recover = self.label_recover(self.ori_Y[:1000],pbar)
                 Y_recover = self.label_recover(self.ori_Y,pbar) # recover the whole transfer set (including previous labels)
                 Y_recover = Y_recover.to(self.Y_true)
                 l1_max, l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std = self.blackbox.calc_query_distances([[self.Y_true,Y_recover],])

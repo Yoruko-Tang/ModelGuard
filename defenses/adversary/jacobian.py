@@ -98,7 +98,7 @@ class JacobianAdversary:
 
         # Populate Dy
         with torch.no_grad():
-            for inputs, in DataLoader(TensorDataset(Dx), batch_size=self.query_batch_size):
+            for inputs, in tqdm(DataLoader(TensorDataset(Dx), batch_size=self.query_batch_size)):
                 inputs = inputs.to(self.device)
                 outputs,y_t_true = blackbox(inputs,return_origin=True)
                 if not self.useprobs:

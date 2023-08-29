@@ -29,7 +29,7 @@ class ReverseSigmoid(Blackbox):
         self.beta = beta
         self.gamma = gamma
 
-        self.top1_preserve = False
+        self.top1_preserve = True
 
         
 

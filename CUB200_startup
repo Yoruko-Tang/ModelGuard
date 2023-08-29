@@ -78,8 +78,8 @@ semi_dataset=${queryset}
 
 ### Defense strategy
 ## Quantization
-quantize=0
-quantize_epsilon=0.0
+quantize=1
+quantize_epsilon=1.0
 optim=0
 ydist=l1
 
@@ -183,7 +183,7 @@ defense_args="rounding:${rounding};out_path:${out_dir}"
 
 ## reverse sigmoid
 strat=reverse_sigmoid
-beta=0.5
+beta=0.011
 gamma=0.2
 # Output path to attacker's model
 out_dir=models/final_bb_dist/${p_v}-${f_v}/${policy}${policy_suffix}-${queryset}-B${budget}/revsig/beta${beta}-gamma${gamma}-quantize${quantize_epsilon}

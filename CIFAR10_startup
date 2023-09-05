@@ -3,7 +3,7 @@ python defenses/victim/train.py CIFAR10 vgg16_bn --out_path models/victim/CIFAR1
 
 ################################ CIFAR10 ################################
 ### If you have multiple GPUs on the machine, use this to select the specific GPU
-dev_id=2
+dev_id=6
 ### p_v = victim model dataset
 p_v=CIFAR10
 ### f_v = architecture of victim model
@@ -42,7 +42,7 @@ T=8
 
 ## adaptive setting
 hardlabel=0
-defense_aware=1
+defense_aware=0
 
 # Lookup Table Attack
 recover_table_size=1000000
@@ -77,8 +77,8 @@ semi_dataset=${queryset}
 
 ### Defense strategy
 ## Quantization
-quantize=1
-quantize_epsilon=1.0
+quantize=0
+quantize_epsilon=0.0
 optim=0
 ydist=l1
 
@@ -192,7 +192,7 @@ defense_args="beta:${beta};gamma:${gamma};out_path:${out_dir}"
 strat=am
 oe_lamb=1.0
 oeset=SVHN
-defense_lv=0.7
+defense_lv=0.99
 # Output path to attacker's model
 out_dir=models/final_bb_dist/${p_v}-${f_v}/${policy}${policy_suffix}-${queryset}-B${budget}/am/tau${defense_lv}-quantize${quantize_epsilon}
 defense_args="defense_level:${defense_lv};out_path:${out_dir}"

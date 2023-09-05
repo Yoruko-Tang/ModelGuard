@@ -86,8 +86,9 @@ class RandomAdversaryIters(object):
         end_B = niters
         self.idx_set = self.all_idxs[:budget]
 
-        stat = (self.label_recover is not None) and (self.blackbox.log_path is not None)
+        stat = (self.label_recover is not None or queries_per_image == 2) and (self.blackbox.log_path is not None)
         if stat:
+            idx_file = self.blackbox.log_path.replace('distancetransfer.log.tsv','idx.pt')
             log_path = self.blackbox.log_path.replace('distance','gtdistance')
             if not osp.exists(log_path):
                 with open(log_path, 'w') as wf:
@@ -161,10 +162,30 @@ class RandomAdversaryIters(object):
                     Y_t.append(y_t)
                     pbar.update(x_t.size(0))
             y_t_list.append(torch.cat(Y_t,dim=0))
+
         Y = torch.stack(y_t_list).mean(dim=0)# Mean over queries
         Y_true = torch.cat(Y_true,dim=0)
         if self.label_recover is not None:
             X = torch.cat(X,dim=0)
+
+        if queries_per_image == 2:
+            dist = torch.norm(y_t_list[0]-y_t_list[1],p=2,dim=1)
+            if osp.exists(idx_file):
+                change_idx = torch.load(idx_file)
+            else:
+                change_idx = torch.arange(len(dist))[dist>1e-3]
+            Y_mean = torch.stack([y_t_list[0][change_idx],y_t_list[1][change_idx]]).mean(dim=0)
+            if stat:
+                torch.save(change_idx,idx_file)
+                l1_max, l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std = self.blackbox.calc_query_distances([[Y_true[change_idx],y_t_list[0].to(Y_true)[change_idx]],])
+                with open(log_path, 'a') as af:
+                    test_cols = ["[orig]:%d"%len(change_idx), l1_max, l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std]
+                    af.write('\t'.join([str(c) for c in test_cols]) + '\n')
+                l1_max, l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std = self.blackbox.calc_query_distances([[Y_true[change_idx],Y_mean.to(Y_true)],])
+                with open(log_path, 'a') as af:
+                    test_cols = ["[mean]:%d"%len(change_idx), l1_max, l1_mean, l1_std, l2_mean, l2_std, kl_mean, kl_std]
+                    af.write('\t'.join([str(c) for c in test_cols]) + '\n')
+                
         
         if self.label_recover is not None:
             print("=> Start to recover the clean labels!")

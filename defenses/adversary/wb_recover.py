@@ -407,12 +407,12 @@ class Table_Recover():
                         rec_dis.append(distances[min_idx])
                     else:
                         tolerance = max([self.tolerance,torch.min(distances).cpu().item()])
-                        if isinstance(self.blackbox,AM) and torch.max(yprime_c[i]).cpu().item()>self.blackbox.defense_fn.delta_list and tolerance>self.tolerance:
-                            y.append(yprime_c[i].unsqueeze(0))
-                            rec_dis.append(torch.tensor(0.0).to(yprime))
-                        else:
-                            y.append(torch.mean(true_label_filtered[distances<=tolerance,:],dim=0,keepdim=True))
-                            rec_dis.append(torch.mean(distances[distances<=tolerance]))
+                        # if isinstance(self.blackbox,AM) and torch.max(yprime_c[i]).cpu().item()>self.blackbox.defense_fn.delta_list and tolerance>self.tolerance:
+                        #     y.append(yprime_c[i].unsqueeze(0))
+                        #     rec_dis.append(torch.tensor(0.0).to(yprime))
+                        # else:
+                        y.append(torch.mean(true_label_filtered[distances<=tolerance,:],dim=0,keepdim=True))
+                        rec_dis.append(torch.mean(distances[distances<=tolerance]))
                     if pbar is not None:
                         pbar.update(1)
                 

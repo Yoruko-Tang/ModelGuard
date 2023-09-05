@@ -3,7 +3,7 @@ python defenses/victim/train.py CIFAR10 vgg16_bn --out_path models/victim/CIFAR1
 
 ################################ CIFAR10 ################################
 ### If you have multiple GPUs on the machine, use this to select the specific GPU
-dev_id=6
+dev_id=3
 ### p_v = victim model dataset
 p_v=CIFAR10
 ### f_v = architecture of victim model

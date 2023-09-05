@@ -3,7 +3,7 @@ python defenses/victim/train.py Caltech256 resnet50 --out_path models/victim/Cal
 
 ################################ Caltech256 ################################
 ### If you have multiple GPUs on the machine, use this to select the specific GPU
-dev_id=4
+dev_id=3
 ### p_v = victim model dataset
 p_v=Caltech256
 ### f_v = architecture of victim model
@@ -20,6 +20,10 @@ lr_step=10
 lr_gamma=0.5
 epochs=30
 training_batch_size=32
+
+### pretrained model
+# use imagenet pretrained
+pretrained=imagenet
 
 ### attack policy
 ## pretrained model

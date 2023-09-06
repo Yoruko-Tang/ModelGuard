@@ -147,9 +147,92 @@ modelfamily_to_transforms = {
 
     'tinyimagenet':{
         'train': transforms.Compose([
-            transforms.Resize(32),
+            # transforms.RandomResizedCrop(32),
+            transforms.Resize([32,32]),
+            transforms.RandomCrop(32, padding=4),
             transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                 std=[0.229, 0.224, 0.225]),
+        ]),
+        'test': transforms.Compose([
+            transforms.Resize(32),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                 std=[0.229, 0.224, 0.225]),
+        ])
+    },
+
+    'lisa':{
+        'train': transforms.Compose([
+            transforms.Resize([32,32]),
+            transforms.RandomCrop(32, padding=4),
+            transforms.RandomHorizontalFlip(),
+            transforms.Normalize(mean=(0.4563, 0.4076, 0.3895),
+                                 std=(0.2298, 0.2144, 0.2259)),
+        ]),
+        'test': transforms.Compose([
+            transforms.Resize([32,32]),
+            transforms.Normalize(mean=(0.4563, 0.4076, 0.3895),
+                                 std=(0.2298, 0.2144, 0.2259)),
+        ])
+    },
+
+    
+}
+
+modelfamily_to_transforms_blur = {
+    'mnist': {
+        'train': transforms.Compose([
+            transforms.ToTensor(),
+            transforms.GaussianBlur(kernel_size=3,sigma=(0.1,0.3)),
+            transforms.Normalize((0.1307,), (0.3081,))
+        ]),
+        'test': transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize((0.1307,), (0.3081,))
+        ]),
+    },
+
+    'cifar': {
+        'train': transforms.Compose([
+            transforms.Resize([32,32]),
+            transforms.ToTensor(),
+            transforms.GaussianBlur(kernel_size=3,sigma=(0.1,0.3)),
+            transforms.Normalize(mean=(0.4914, 0.4822, 0.4465),
+                                 std=(0.2023, 0.1994, 0.2010)),
+        ]),
+        'test': transforms.Compose([
+            transforms.Resize([32,32]),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=(0.4914, 0.4822, 0.4465),
+                                 std=(0.2023, 0.1994, 0.2010)),
+        ])
+    },
+
+    'imagenet': {
+        'train': transforms.Compose([
+            transforms.Resize(256),
+            transforms.CenterCrop(224),
+            transforms.ToTensor(),
+            transforms.GaussianBlur(kernel_size=3,sigma=(0.1,0.3)),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                 std=[0.229, 0.224, 0.225]),
+        ]),
+        'test': transforms.Compose([
+            transforms.Resize(256),
+            transforms.CenterCrop(224),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                 std=[0.229, 0.224, 0.225]),
+        ])
+    },
+
+    'tinyimagenet':{
+        'train': transforms.Compose([
+            transforms.Resize(32),
+            transforms.ToTensor(),
+            transforms.GaussianBlur(kernel_size=3,sigma=(0.1,0.3)),
             transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                  std=[0.229, 0.224, 0.225]),
         ]),

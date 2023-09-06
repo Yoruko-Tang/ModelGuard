@@ -86,7 +86,7 @@ class RandomAdversaryIters(object):
         end_B = niters
         self.idx_set = self.all_idxs[:budget]
 
-        stat = (self.label_recover is not None or queries_per_image == 2) and (self.blackbox.log_path is not None)
+        stat = (self.label_recover is not None or queries_per_image >= 2) and (self.blackbox.log_path is not None)
         if stat:
             idx_file = self.blackbox.log_path.replace('distancetransfer.log.tsv','idx.pt')
             log_path = self.blackbox.log_path.replace('distance','gtdistance')
@@ -168,8 +168,8 @@ class RandomAdversaryIters(object):
         if self.label_recover is not None:
             X = torch.cat(X,dim=0)
 
-        if queries_per_image == 2:
-            dist = torch.norm(y_t_list[0]-y_t_list[1],p=2,dim=1)
+        if queries_per_image >= 2:
+            dist = torch.norm(y_t_list[0]-Y,p=2,dim=1)
             if osp.exists(idx_file):
                 change_idx = torch.load(idx_file)
             else:
@@ -241,6 +241,7 @@ def main():
     parser.add_argument('-d', '--device_id', metavar='D', type=int, help='Device id', default=0)
     parser.add_argument('-w', '--nworkers', metavar='N', type=int, help='# Worker threads to load data', default=10)
     parser.add_argument('--train_transform', action='store_true', help='Perform data augmentation', default=False)
+    parser.add_argument('--train_transform_blur', action='store_true', help='Perform data Gaussian Blur augmentation', default=False)
     parser.add_argument('--only_recovery', action='store_true', help='Perform prediction recovery only', default=False)
     args = parser.parse_args()
     params = vars(args)
@@ -261,10 +262,15 @@ def main():
     if queryset_name not in valid_datasets:
         raise ValueError('Dataset not found. Valid arguments = {}'.format(valid_datasets))
     modelfamily = datasets.dataset_to_modelfamily[queryset_name]
-    transform_type = 'train' if params['train_transform'] else 'test'
+    # transform_type = 'train' if (params['train_transform'] or params['train_transform_blur']) else 'test'
     if params['train_transform']:
         print('=> Using data augmentation while querying')
-    transform = datasets.modelfamily_to_transforms[modelfamily][transform_type]
+        transform = datasets.modelfamily_to_transforms[modelfamily]['train']
+    elif params['train_transform_blur']:
+        print('=> Using data Guassian Blur augmentation while querying')
+        transform = datasets.modelfamily_to_transforms_blur[modelfamily]['train']
+    else:
+        transform = datasets.modelfamily_to_transforms[modelfamily]['test']
 
     only_recovery = params['only_recovery'] and osp.exists(osp.join(out_path, 'transferset.pickle'))
     if only_recovery:

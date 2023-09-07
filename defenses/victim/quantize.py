@@ -480,6 +480,9 @@ class incremental_kmeans():
         y_final = self.blackbox.get_yprime(cents,x_info=x_info) # defense-unaware attack next
         return y_final
 
+    def eval(self):
+        self.model.eval()
+        
     def get_xinfo(self,x):
         return self.blackbox.get_xinfo(x)
 

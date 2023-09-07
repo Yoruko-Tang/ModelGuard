@@ -14,11 +14,13 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader,TensorDataset
 import torchvision.models as torch_models
 
 import defenses.utils.utils as knockoff_utils
 from defenses.utils.semi_losses import Rotation_Loss
+
+from sklearn.metrics import roc_auc_score
 
 from tqdm import tqdm
 
@@ -344,3 +346,43 @@ def train_model(model, trainset, out_path, batch_size=64, criterion_train=None, 
             af.write('\t'.join([str(c) for c in test_cols]) + '\n')
 
     return model
+
+
+def ood_test_step(model, id_testloader, ood_testloader, device):
+    model.eval()
+    imgs = []
+    labels = []
+    id_scores = []
+    id_labels = []
+    batch_size=None
+    with torch.no_grad():
+        for inputs, _ in id_testloader:
+            imgs.append(inputs)
+            labels.append(torch.ones(len(inputs),dtype=torch.long))
+            if batch_size is None:
+                batch_size = len(inputs)
+        for inputs, _ in ood_testloader:
+            imgs.append(inputs)
+            labels.append(torch.zeros(len(inputs),dtype=torch.long))   
+        imgs = torch.cat(imgs,dim=0)
+        labels = torch.cat(labels,dim=0)
+        dataset = TensorDataset(imgs,labels)
+        loader = DataLoader(dataset,batch_size=batch_size,shuffle=True)
+        for inputs,targets in loader: # randomly shuffle the inputs
+            inputs = inputs.to(device)
+            outputs = model(inputs)
+
+            max_pred, _ = outputs.max(1)
+            id_scores.append(max_pred.detach().cpu().numpy())
+            id_labels.append(targets.detach().cpu().numpy())
+        
+
+
+    scores = np.concatenate(id_scores)
+    id_labels = np.concatenate(id_labels)
+    auroc = roc_auc_score(id_labels,scores)
+    
+    print('[Test]  AUROC: {}'.format(auroc))
+
+
+    return auroc

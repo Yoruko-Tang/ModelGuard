@@ -75,7 +75,6 @@ dataset_to_modelfamily = {
     # special images
     'TinyImageNet200': 'tinyimagenet',
     'STL10': 'cifar',
-    'OxfordIIITPet': 'oxfordpet',
     'LISA': 'lisa',
 }
 

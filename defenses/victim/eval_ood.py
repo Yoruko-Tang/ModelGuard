@@ -131,15 +131,16 @@ def main():
     epoch = bbox_params['epochs']
     id_testloader = DataLoader(id_testset, num_workers=nworkers, shuffle=False, batch_size=batch_size)
     ood_testloader = DataLoader(ood_testset, num_workers=nworkers, shuffle=False, batch_size=batch_size)
-    auroc = model_utils.ood_test_step(blackbox, id_testloader, ood_testloader, device)
+    data_path = osp.join(out_path, 'oodscores.{}-{}.pt'.format(id_testset_name,ood_testset_name))
+    msp_auroc,msp_fpr_tpr95,ent_auroc,ent_fpr_tpr95 = model_utils.ood_test_step(blackbox, id_testloader, ood_testloader, device, data_path=data_path)
 
     log_out_path = osp.join(out_path, 'bboxoodeval.{}-{}.log.tsv'.format(id_testset_name,ood_testset_name))
     with open(log_out_path, 'w') as wf:
-        columns = ['run_id', 'epoch', 'split', 'auroc']
+        columns = ['run_id', 'epoch', 'split', 'msp auroc', 'msp fpr@tpr95','ent auroc', 'ent fpr@tpr95']
         wf.write('\t'.join(columns) + '\n')
 
         run_id = str(datetime.now())
-        test_cols = [run_id, epoch, 'test', auroc]
+        test_cols = [run_id, epoch, 'test', msp_auroc,msp_fpr_tpr95,ent_auroc,ent_fpr_tpr95]
         wf.write('\t'.join([str(c) for c in test_cols]) + '\n')
 
     # Store arguments

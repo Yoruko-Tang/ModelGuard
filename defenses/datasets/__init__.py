@@ -19,6 +19,7 @@ from defenses.datasets.dtd import DTD
 from defenses.datasets.ImageNette import ImageNette
 from defenses.datasets.oxfordpet import OxfordIIITPet
 from defenses.datasets.stl10 import STL10
+from defenses.datasets.inaturalist import iNaturalist
 
 
 
@@ -71,6 +72,7 @@ dataset_to_modelfamily = {
     'ImageFolder': 'imagenet',
     'DTD': 'imagenet',
     'ImageNette': 'imagenet',
+    'iNaturalist': 'imagenet',
 
     # special images
     'TinyImageNet200': 'tinyimagenet',

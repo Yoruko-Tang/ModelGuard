@@ -20,9 +20,10 @@ import torchvision.models as torch_models
 import defenses.utils.utils as knockoff_utils
 from defenses.utils.semi_losses import Rotation_Loss
 
-from sklearn.metrics import roc_auc_score
+from sklearn.metrics import roc_auc_score,roc_curve
 
 from tqdm import tqdm
+import pickle
 
 def get_net(model_name, n_output_classes=1000, **kwargs):
     print('=> loading model {} with arguments: {}'.format(model_name, kwargs))
@@ -348,41 +349,76 @@ def train_model(model, trainset, out_path, batch_size=64, criterion_train=None, 
     return model
 
 
-def ood_test_step(model, id_testloader, ood_testloader, device):
+def entropy(predictions):
+    return -torch.sum(torch.log(predictions+1e-6)*predictions,dim=1)
+
+def fpr_tpr95(scores,labels):
+    fpr,tpr,th = roc_curve(labels,scores)
+    return fpr[tpr>=0.95][0]
+
+def ood_test_step(model, id_testloader, ood_testloader, device,data_path=None):
     model.eval()
-    imgs = []
+    # imgs = []
+    # labels = []
+    msp_scores = []
+    ent_scores = []
     labels = []
-    id_scores = []
-    id_labels = []
-    batch_size=None
-    with torch.no_grad():
-        for inputs, _ in id_testloader:
-            imgs.append(inputs)
-            labels.append(torch.ones(len(inputs),dtype=torch.long))
-            if batch_size is None:
-                batch_size = len(inputs)
-        for inputs, _ in ood_testloader:
-            imgs.append(inputs)
-            labels.append(torch.zeros(len(inputs),dtype=torch.long))   
-        imgs = torch.cat(imgs,dim=0)
-        labels = torch.cat(labels,dim=0)
-        dataset = TensorDataset(imgs,labels)
-        loader = DataLoader(dataset,batch_size=batch_size,shuffle=True)
-        for inputs,targets in loader: # randomly shuffle the inputs
-            inputs = inputs.to(device)
-            outputs = model(inputs)
+    n_classes = None
+    # batch_size=None
+    if data_path is not None and osp.exists(data_path):
+        with open(data_path, 'rb') as rf:
+            msp_scores,ent_scores,labels = pickle.load(rf)
+    else:
+        with torch.no_grad():
+            # for inputs, _ in id_testloader:
+            #     imgs.append(inputs)
+            #     labels.append(torch.ones(len(inputs),dtype=torch.long))
+            #     if batch_size is None:
+            #         batch_size = len(inputs)
+            # for inputs, _ in ood_testloader:
+            #     imgs.append(inputs)
+            #     labels.append(torch.zeros(len(inputs),dtype=torch.long))   
+            # imgs = torch.cat(imgs,dim=0)
+            # labels = torch.cat(labels,dim=0)
+            # dataset = TensorDataset(imgs,labels)
+            # loader = DataLoader(dataset,batch_size=batch_size,shuffle=True)
+            for inputs,targets in id_testloader:
+                inputs = inputs.to(device)
+                outputs = model(inputs)
+                if n_classes is None:
+                    n_classes = outputs.size(1)
 
-            max_pred, _ = outputs.max(1)
-            id_scores.append(max_pred.detach().cpu().numpy())
-            id_labels.append(targets.detach().cpu().numpy())
-        
+                max_pred, _ = outputs.max(1)
+                ent_sc = 1-entropy(outputs)/np.log(n_classes)
 
+                msp_scores.append(max_pred.detach().cpu().numpy())
+                ent_scores.append(ent_sc.detach().cpu().numpy())
+                labels.append(np.ones(len(max_pred),dtype=np.int64))
 
-    scores = np.concatenate(id_scores)
-    id_labels = np.concatenate(id_labels)
-    auroc = roc_auc_score(id_labels,scores)
+            for inputs,targets in ood_testloader:
+                inputs = inputs.to(device)
+                outputs = model(inputs)
+
+                max_pred, _ = outputs.max(1)
+                ent_sc = 1-entropy(outputs)/np.log(n_classes)
+
+                msp_scores.append(max_pred.detach().cpu().numpy())
+                ent_scores.append(ent_sc.detach().cpu().numpy())
+                labels.append(np.zeros(len(max_pred),dtype=np.int64))
+            
+        if data_path is not None:
+            with open(data_path, 'wb') as wf:
+                pickle.dump([msp_scores,ent_scores,labels],wf)
+
+    msp_scores = np.concatenate(msp_scores)
+    ent_scores = np.concatenate(ent_scores)
+    labels = np.concatenate(labels)
+    msp_auroc = roc_auc_score(labels,msp_scores)
+    ent_auroc = roc_auc_score(labels,ent_scores)
+    msp_fpr_tpr95 = fpr_tpr95(msp_scores,labels)
+    ent_fpr_tpr95 = fpr_tpr95(ent_scores,labels)
     
-    print('[Test]  AUROC: {}'.format(auroc))
+    print('[Test]  MSP AUROC: {}\tMSP_FPR@TPR95: {}\tENT AUROC: {}\tENT FPR@TPR95: {}'.format(msp_auroc,msp_fpr_tpr95,ent_auroc,ent_fpr_tpr95))
 
 
-    return auroc
+    return msp_auroc,msp_fpr_tpr95,ent_auroc,ent_fpr_tpr95

@@ -240,8 +240,8 @@ def main():
     # ----------- Other params
     parser.add_argument('-d', '--device_id', metavar='D', type=int, help='Device id', default=0)
     parser.add_argument('-w', '--nworkers', metavar='N', type=int, help='# Worker threads to load data', default=10)
-    parser.add_argument('--train_transform', action='store_true', help='Perform data augmentation', default=False)
-    parser.add_argument('--train_transform_blur', action='store_true', help='Perform data Gaussian Blur augmentation', default=False)
+    parser.add_argument('--train_transform', type=int, help='Whether to perform data augmentation when querying', default=0)
+    parser.add_argument('--train_transform_blur', type=int, help='Whether to perform data Gaussian Blur augmentation', default=0)
     parser.add_argument('--only_recovery', action='store_true', help='Perform prediction recovery only', default=False)
     args = parser.parse_args()
     params = vars(args)

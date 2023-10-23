@@ -5,13 +5,13 @@ This is an official implementation of the USENIX Security 2024 paper *ModelGuard
 **Abstract**: Malicious utilization of a query interface can compromise the confidentiality of ML-as-a-Service (MLaaS) systems via model extraction attacks. Previous studies have proposed to perturb the predictions of the MLaaS system as a defense against model extraction attacks. However, existing prediction perturbation methods suffer from a poor privacy-utility balance and cannot effectively defend against the latest adaptive model extraction attacks. In this paper, we propose a novel prediction perturbation defense named ModelGuard, which aims at defending against adaptive model extraction attacks while maintaining a high utility of the protected system. We develop a general optimization problem that considers different kinds of model extraction attacks, and ModelGuard provides an information-theoretic defense to efficiently solve the optimization problem and achieve resistance against adaptive attacks. Experiments show that ModelGuard attains significantly better defensive performance against adaptive attacks with less loss of utility compared to previous defenses.
 
 ## Environment
-1. Python 3.8.8
+1. Python 3.8
 2. PyTorch 1.7.1
 3. PuLP 2.6.0
 
 You can run the following commands to create a new environments for running the codes with Anaconda:
 ```shell
-conda create -n modelguard python=3.8.8
+conda create -n modelguard python=3.8
 conda activate modelguard
 pip install -r requirements.txt
 ```

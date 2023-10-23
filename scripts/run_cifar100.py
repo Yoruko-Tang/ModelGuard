@@ -193,7 +193,7 @@ for policy in query_list:
                 out_dir=f"models/final_bb_dist/{p_v}-{f_v}/{policy}{policy_suffix}-{queryset}-B{budget}/rounding{rounding}"
                 defense_args=f"'rounding:{rounding};out_path:{out_dir}'"
 
-            elif defense == 'modelguardw':
+            elif defense == 'modelguard_w':
                 ## MLD
                 strat="mld"
                 # Using Batch Constraint
@@ -207,7 +207,7 @@ for policy in query_list:
                 # Parameters to defense strategy, provided as a key:value pair string. 
                 defense_args=f"'epsilon:{eps};batch_constraint:{batch_constraint};ydist:{ydist};out_path:{out_dir}'"
             
-            elif defense == 'modelguards':
+            elif defense == 'modelguard_s':
                 strat="none"
                 # Output path to attacker's model
                 out_dir=f"models/final_bb_dist/{p_v}-{f_v}/{policy}{policy_suffix}-{queryset}-B{budget}/modelguards/eps{quantize_epsilon}"

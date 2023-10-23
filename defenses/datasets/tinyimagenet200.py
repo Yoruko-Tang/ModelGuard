@@ -33,7 +33,7 @@ class TinyImageNet200(ImageFolder):
         root = osp.join(cfg.DATASET_ROOT, 'tiny-imagenet-200')
         if not osp.exists(root):
             raise ValueError('Dataset not found at {}. Please download it from {}.'.format(
-                root, 'https://tiny-imagenet.herokuapp.com'
+                root, 'http://cs231n.stanford.edu/tiny-imagenet-200.zip'
             ))
 
         # Initialize ImageFolder

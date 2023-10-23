@@ -5,24 +5,33 @@ This is an official implementation of the USENIX Security 2024 paper *ModelGuard
 **Abstract**: Malicious utilization of a query interface can compromise the confidentiality of ML-as-a-Service (MLaaS) systems via model extraction attacks. Previous studies have proposed to perturb the predictions of the MLaaS system as a defense against model extraction attacks. However, existing prediction perturbation methods suffer from a poor privacy-utility balance and cannot effectively defend against the latest adaptive model extraction attacks. In this paper, we propose a novel prediction perturbation defense named ModelGuard, which aims at defending against adaptive model extraction attacks while maintaining a high utility of the protected system. We develop a general optimization problem that considers different kinds of model extraction attacks, and ModelGuard provides an information-theoretic defense to efficiently solve the optimization problem and achieve resistance against adaptive attacks. Experiments show that ModelGuard attains significantly better defensive performance against adaptive attacks with less loss of utility compared to previous defenses.
 
 ## Environment
-1. PyTorch 1.7.0
-2. PuLP 2.6.0
+1. Python 3.8.8
+2. PyTorch 1.7.1
+3. PuLP 2.6.0
+
+You can run the following commands to create a new environments for running the codes with Anaconda:
+```shell
+conda create -n modelguard python=3.8.8
+conda activate modelguard
+pip install -r requirements.txt
+```
 
 ## Instructions to Run the Codes
+We will show how to run the experiments with $X_t$ = Caltech256 as an example here. To run the experiments on other dataset, please change the parameters according to our paper. 
 
-### Dataset Preparing
-Except for the datasets (CIFAR100, CIFAR10, SVHN) that can be downloaded by Pytorch, you also need to download the following datasets into ```./data``` and unzip them in the same directory to reproduce all the results in this paper. (You can change the default dataset path by changing the ```root``` parameter in the dataset files such as ```./defenses/datasets/caltech256.py```.)
+### 0. Dataset Preparing
+Except for the datasets (CIFAR100, CIFAR10, SVHN) that can be downloaded by Pytorch, you also need to download the following datasets into ```./data/``` (create it if it does not exist) and unzip them to reproduce the results in this paper. (You can change the default dataset path by changing the ```root``` parameter in the dataset files such as ```./defenses/datasets/caltech256.py```.)
 
-1. [Caltech256](https://data.caltech.edu/records/nyy15-4j048)
-2. [CUB200](https://data.caltech.edu/records/65de6-vp158)
+1. [Caltech256](https://data.caltech.edu/records/nyy15-4j048/files/256_ObjectCategories.tar?download=1)
+2. [CUB200](https://data.caltech.edu/records/65de6-vp158/files/CUB_200_2011.tgz?download=1)
 3. [ImageNet1k](http://image-net.org/download-images)
-4. [Indoor67](http://web.mit.edu/torralba/www/indoor.html)
-5. [GTSRB](https://benchmark.ini.rub.de/)
-6. [DTD](https://www.robots.ox.ac.uk/~vgg/data/dtd/)
+4. [TinyImageNet200](http://cs231n.stanford.edu/tiny-imagenet-200.zip)
+5. [Indoor67](http://groups.csail.mit.edu/vision/LabelMe/NewImages/indoorCVPR_09.tar)
 
-We will show how to run the experiments with $X_t$ = Caltech256 as an example here. To run the experiments on other dataset, please change the parameters according to our paper.
 
-### General Setup
+
+
+### 1. General Setup
 
 Run the following commands in shell to define the datasets and training hyperparameters.
 
@@ -51,8 +60,7 @@ epochs=30
 training_batch_size=32
 ```
 
-### Generate Target Model
-After defining the training hyperparameter, you can generate the target model if you have not done this before. Run the following command in shell to train the model with outlier exposure:
+\[OPTION\]: You can generate the target model if you do not have the target model. Run the following command in shell to train the model with outlier exposure:
 
 ```shell
 # (defense) Train a target model with outlier exposure
@@ -62,34 +70,33 @@ python defenses/victim/train_admis.py ${X_t} ${w_t} -o ${vic_dir} -b 64 -d ${dev
 This command will also generate the misinformation model for AM defense. 
 
 
-### Define Query Strategy
+### 2. Define Attack Method
 You can specify the query strategy (KnockoffNet or JBDA-TR) for the attacker from the following two options.
 
-#### 1. KnockoffNet
+1. KnockoffNet
 
-```shell
-policy=random
-budget=50000 
-# Batch size of queries to process for the attacker. Set to 1 to simulate the realtime sequential query.
-batch_size=1
-```
+    ```shell
+    policy=random
+    budget=50000 
+    # Batch size of queries to process for the attacker. Set to 1 to simulate the realtime sequential query.
+    batch_size=1
+    ```
 
-#### 2. JBDA-TR
+2. JBDA-TR
 
-```shell
-policy=jbtr3
-budget=50000 
-seedsize=1000
-jb_epsilon=0.1
-T=8
-# Batch size of queries to process for the attacker. Set to 1 to simulate the realtime sequential query.
-batch_size=1
-```
+    ```shell
+    policy=jbtr3
+    budget=50000 
+    seedsize=1000
+    jb_epsilon=0.1
+    T=8
+    # Batch size of queries to process for the attacker. Set to 1 to simulate the realtime sequential query.
+    batch_size=1
+    ```
 
-### Define Attack Strategy
-You can choose one of the following attack strategies:
+Then you need to choose one of the following attack strategies:
 
-#### 1. Naive Attack
+#### a. Naive Attack
 
 ```shell
 ## Adaptive setting
@@ -111,7 +118,7 @@ qpi=1
 policy_suffix="_naive"
 ```
 
-#### 2. Top-1 Attack
+#### b. Top-1 Attack
 
 ```shell
 ## Adaptive setting
@@ -132,7 +139,7 @@ qpi=1
 policy_suffix="_top1"
 ```
 
-#### 3. S4L Attck
+#### c. S4L Attck
 
 ```shell
 ## Adaptive setting
@@ -153,9 +160,9 @@ qpi=1
 policy_suffix="_s4l"
 ```
 
-***Notice:** S4L Attack can only be used with KnockoffNet Currently.
+**Notice:** S4L Attack can only be used with KnockoffNet Currently.
 
-#### 4. Smoothing Attack
+#### d. Smoothing Attack
 
 ```shell
 ## Adaptive setting
@@ -178,9 +185,7 @@ policy_suffix="_smoothing"
 
 **Notice:** Smoothing Attack can only be used with KnockoffNet Currently.
 
-#### 5. D-DAE
-
-If you want to run (vanilla) D-DAE, you must first train the shadow model to generate the training set of the restorer. Run the following commands to define the hyperparameters for D-DAE first:
+#### e. D-DAE
 
 ```shell
 ## Adaptive setting
@@ -204,15 +209,14 @@ qpi=1
 policy_suffix="_ddae"
 ```
 
-Then run the following command to train the shadow model if you have not done this before:
+\[OPTION\]: If you have not generate shadow models for generating the training data for D-DAE, you need to run the following command to train the shadow models:
+
 ```shell
 # (adversarial) Train shadow models
-python defenses/victim/train_shadow.py ${shadowset} ${shadow_model} -o ${shadow_path} -b 64 -d ${dev_id} -e 5 -w 10 --lr 0.01 --lr_step 3 --lr_gamma 0.5 --pretrained ${pretrained} --num_shadows ${num_shadows} --num_classes ${num_classes}
+python defenses/victim/train_shadow.py ${shadowset} ${shadow_model} -o ${shadow_path} -b 64 -d ${dev_id} -e 5 -w 4 --lr 0.01 --lr_step 3 --lr_gamma 0.5 --pretrained ${pretrained} --num_shadows ${num_shadows} --num_classes ${num_classes}
 ```
 
-#### 6. D-DAE+
-
-You do not need to train shadow models for D-DAE+.
+#### f. D-DAE+
 
 ```shell
 ## Adaptive setting
@@ -232,7 +236,9 @@ qpi=1
 policy_suffix="_ddae+"
 ```
 
-#### 7. Partial Bayes Attack
+**Notice**: You do not need to train shadow models for D-DAE+.
+
+#### g. Partial Bayes Attack
 
 ```shell
 ## Adaptive setting
@@ -251,13 +257,13 @@ semi_dataset=${queryset}
 ## Augmentation setting
 transform=0
 qpi=1
-policy_suffix="_pbayes"
+policy_suffix="_bayes"
 ```
 
-### Define Defense Method
+### 3. Define Defense Method
 You can select one of the following defense against model extraction attacks. 
 
-#### 1. No Defense (None)
+#### a. No Defense (None)
 
 ```shell
 ## Quantization setting
@@ -274,7 +280,7 @@ out_dir=models/final_bb_dist/${X_t}-${w_t}/${policy}${policy_suffix}-${queryset}
 defense_args="out_path:${out_dir}"
 ```
 
-#### 2. Reverse Sigmoid (RevSig)
+#### b. Reverse Sigmoid (RevSig)
 
 ```shell
 ## Quantization setting
@@ -294,16 +300,7 @@ defense_args="beta:${beta};gamma:${gamma};out_path:${out_dir}"
 ```
 
 
-#### 3. Maximizing Angular Deviation (MAD)
-
-To run MAD, you need to first generate a surrogate model. Run the following command to do so if you have not done this before:
-
-```shell
-# (defense) Generate randomly initialized surrogate model
-python defenses/victim/train.py Caltech256 resnet50 --out_path models/victim/Caltech256-resnet50-train-nodefense-scratch-advproxy --device_id 0 --epochs 1 --train_subset 10 --lr 0.0
-```
-
-The following command defines MAD defsense.
+#### c. Maximizing Angular Deviation (MAD)
 
 ```shell
 ## Quantization setting
@@ -322,11 +319,18 @@ eps=1.0
 oracle=argmax
 proxystate=scratch
 proxydir=models/victim/${X_t}-${w_t}-train-nodefense-${proxystate}-advproxy
-out_dir=models/final_bb_dist/${X_t}-${w_t}/${policy}${policy_suffix}-${queryset}-B${budget}/mad_${oracle}_${ydist}/eps[${eps}]-proxy_${proxystate}
+out_dir=models/final_bb_dist/${X_t}-${w_t}/${policy}${policy_suffix}-${queryset}-B${budget}/mad_${oracle}_${ydist}/eps${eps}-proxy_${proxystate}
 defense_args="epsilon:${eps};batch_constraint:0;objmax:1;oracle:${oracle};ydist:${ydist};model_adv_proxy:${proxydir};out_path:${out_dir}"
 ```
 
-#### 4. Adaptive Misinformation (AM)
+\[OPTION\]: To run MAD, you need to first generate a surrogate model. Run the following command to do so if you have not done this before:
+
+```shell
+# (defense) Generate randomly initialized surrogate model
+python defenses/victim/train.py ${X_t} ${w_t} --out_path ${proxydir} --device_id ${dev_id} --epochs 1 --train_subset 10 --lr 0.0
+```
+
+#### d. Adaptive Misinformation (AM)
 
 The misinformation model for AM is trained automatically when you train the target model with OE before.
 
@@ -347,7 +351,7 @@ out_dir=models/final_bb_dist/${X_t}-${w_t}/${policy}${policy_suffix}-${queryset}
 defense_args="defense_level:${defense_lv};out_path:${out_dir}"
 ```
 
-#### 5. Top-1 Defense
+#### e. Top-1 Defense
 
 ```shell
 ## Quantization setting
@@ -366,7 +370,7 @@ out_dir=models/final_bb_dist/${X_t}-${w_t}/${policy}${policy_suffix}-${queryset}
 defense_args="topk:${topk};rounding:${rounding};out_path:${out_dir}"
 ```
 
-#### 6. Rounding Defense
+#### f. Rounding Defense
 
 ```shell
 ## Quantization setting
@@ -386,7 +390,7 @@ defense_args="rounding:${rounding};out_path:${out_dir}"
 ```
 
 
-#### 7. ModelGuard-W
+#### g. ModelGuard-W
 
 ``` shell
 ## Quantization setting
@@ -403,11 +407,11 @@ batch_constraint=0
 ydist=l1
 # Set the epsilon here
 eps=1.0
-out_dir=models/final_bb_dist/${X_t}-${w_t}/${policy}${policy_suffix}-${queryset}-B${budget}/modelguardw/eps[${eps}]
+out_dir=models/final_bb_dist/${X_t}-${w_t}/${policy}${policy_suffix}-${queryset}-B${budget}/modelguardw/eps${eps}
 defense_args="epsilon:${eps};batch_constraint:${batch_constraint};ydist:${ydist};out_path:${out_dir}"
 ```
 
-#### 8. ModelGuard-S
+#### h. ModelGuard-S
 
 ```shell
 ## Quantization setting
@@ -421,34 +425,41 @@ quantize_args="epsilon:${quantize_epsilon};ydist:${ydist};optim:${optim};frozen:
 
 ## Perturbation setting
 strat=none
-out_dir=models/final_bb_dist/${X_t}-${w_t}/${policy}${policy_suffix}-${queryset}-B${budget}/modelguards/eps[${quantize_epsilon}]
+out_dir=models/final_bb_dist/${X_t}-${w_t}/${policy}${policy_suffix}-${queryset}-B${budget}/modelguards/eps${quantize_epsilon}
 defense_args="out_path:${out_dir}"
 ```
 
-### Query and Training
-After defining attack and defense, you can use the following commands to query and train the substitute model.
-
-#### 1. KnockoffNet
-
-**Query**:
+#### Evaluate the Protected Model
+You can get the protected accuracy of the target model defended by the specified defense method by running the following command:
 
 ```shell
-# (adversary) Generate transfer dataset (only when policy=random)
-python defenses/adversary/transfer.py ${policy} ${vic_dir} ${strat} ${defense_args} --out_dir ${out_dir} --batch_size ${batch_size} -d ${dev_id} --queryset ${queryset} --budget ${budget} --quantize ${quantize} --quantize_args ${quantize_args} --defense_aware ${defense_aware} --recover_args ${recover_params} --hardlabel ${hardlabel} --train_transform ${transform} --qpi ${qpi}
+python defenses/victim/eval.py ${vic_dir} ${strat} ${defense_args} --quantize ${quantize} --quantize_args ${quantize_args} --out_dir ${out_dir} --batch_size ${batch_size} -d ${dev_id}
 ```
 
-**Train**:
+### 4. Query and Training
+After defining attack and defense, you can use the following commands to query and train the substitute model based on the query strategy you use.
 
-```shell
-# (adversary) Train kickoffnet and evaluate
-python defenses/adversary/train.py ${out_dir} ${w_t} ${X_t} --budgets 50000 -e ${epochs} -b ${training_batch_size} --lr ${lr} --lr_step ${lr_step} --lr_gamma ${lr_gamma} -d ${dev_id} -w 4 --pretrained ${pretrained} --vic_dir ${vic_dir} --semitrainweight ${semi_train_weight} --semidataset ${semi_dataset} 
-```
+1. KnockoffNet
 
-#### 2. JBDA-TR
+    **Query**:
 
-```shell
-# (adversary) Use jbda-tr as attack policy
-python defenses/adversary/jacobian.py ${policy} ${vic_dir} ${strat} ${defense_args} --quantize ${quantize} --quantize_args ${quantize_args} --defense_aware ${defense_aware} --recover_args ${recover_params} --hardlabel ${hardlabel} --model_adv ${w_t} --pretrained ${pretrained} --out_dir ${out_dir} --testdataset ${X_t} -d ${dev_id} --queryset ${queryset} --query_batch_size ${batch_size} --budget ${budget} -e ${epochs} -b ${training_batch_size} --lr ${lr} --lr_step ${lr_step} --lr_gamma ${lr_gamma} --seedsize ${seedsize} --epsilon ${jb_epsilon} --T ${T} 
-```
+    ```shell
+    # (adversary) Generate transfer dataset (only when policy=random)
+    python defenses/adversary/transfer.py ${policy} ${vic_dir} ${strat} ${defense_args} --out_dir ${out_dir} --batch_size ${batch_size} -d ${dev_id} --queryset ${queryset} --budget ${budget} --quantize ${quantize} --quantize_args ${quantize_args} --defense_aware ${defense_aware} --recover_args ${recover_params} --hardlabel ${hardlabel} --train_transform ${transform} --qpi ${qpi}
+    ```
+
+    **Train**:
+
+    ```shell
+    # (adversary) Train kickoffnet and evaluate
+    python defenses/adversary/train.py ${out_dir} ${w_t} ${X_t} --budgets 50000 -e ${epochs} -b ${training_batch_size} --lr ${lr} --lr_step ${lr_step} --lr_gamma ${lr_gamma} -d ${dev_id} -w 4 --pretrained ${pretrained} --vic_dir ${vic_dir} --semitrainweight ${semi_train_weight} --semidataset ${semi_dataset} 
+    ```
+
+2. JBDA-TR
+
+    ```shell
+    # (adversary) Use jbda-tr as attack policy
+    python defenses/adversary/jacobian.py ${policy} ${vic_dir} ${strat} ${defense_args} --quantize ${quantize} --quantize_args ${quantize_args} --defense_aware ${defense_aware} --recover_args ${recover_params} --hardlabel ${hardlabel} --model_adv ${w_t} --pretrained ${pretrained} --out_dir ${out_dir} --testdataset ${X_t} -d ${dev_id} --queryset ${queryset} --query_batch_size ${batch_size} --budget ${budget} -e ${epochs} -b ${training_batch_size} --lr ${lr} --lr_step ${lr_step} --lr_gamma ${lr_gamma} --seedsize ${seedsize} --epsilon ${jb_epsilon} --T ${T} 
+    ```
 
 You will get the trained substitute model and training logs in ```out_dir```.

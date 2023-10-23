@@ -185,8 +185,9 @@ def main():
 
         checkpoint_suffix = '.{}'.format(b)
         criterion_train = model_utils.soft_cross_entropy
-        save_path = model_dir + "/{}_{}-{:.1f}_featfix{}/".format(params['pretrained'],params['semidataset'],
-                                                                  params['semitrainweight'],int(params['fix_feat']))
+        # save_path = model_dir + "/{}_{}-{:.1f}_featfix{}/".format(params['pretrained'],params['semidataset'],
+        #                                                           params['semitrainweight'],int(params['fix_feat']))
+        save_path = model_dir
         model_utils.train_model(model, transferset, save_path, testset=testset, criterion_train=criterion_train,
                                 semi_train_weight=semi_train_weight,semi_dataset=semi_dataset,
                                 checkpoint_suffix=checkpoint_suffix, device=device, optimizer=optimizer,

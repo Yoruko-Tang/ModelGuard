@@ -34,6 +34,8 @@ def main():
     parser.add_argument('defense', metavar='TYPE', type=str, help='Type of defense to use',
                         choices=knockoff_utils.BBOX_CHOICES)
     parser.add_argument('defense_args', metavar='STR', type=str, help='Blackbox arguments in format "k1:v1,k2:v2,..."')
+    parser.add_argument('--quantize',type=int,help="Whether using quantized defense",default=0)
+    parser.add_argument('--quantize_args',type=str,help='Quantization arguments in format "k1:v1,k2:v2,..."')
     parser.add_argument('--out_dir', metavar='PATH', type=str,
                         help='Destination directory to store transfer set', required=True)
     parser.add_argument('--batch_size', metavar='TYPE', type=int, help='Batch size of queries', default=1)
@@ -84,6 +86,11 @@ def main():
     defense_kwargs['log_prefix'] = 'test'
     print('=> Initializing BBox with defense {} and arguments: {}'.format(defense_type, defense_kwargs))
     blackbox = BB.from_modeldir(blackbox_dir, device, **defense_kwargs)
+    if params['quantize']:
+        quantize_kwargs = knockoff_utils.parse_defense_kwargs(params['quantize_args'])
+        if quantize_kwargs['epsilon'] > 0.0:
+            print('=> Initializing Quantizer with arguments: {}'.format(quantize_kwargs))
+            blackbox = incremental_kmeans(blackbox,**quantize_kwargs)
 
     for k, v in defense_kwargs.items():
         params[k] = v

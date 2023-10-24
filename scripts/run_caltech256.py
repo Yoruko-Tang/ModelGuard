@@ -3,7 +3,7 @@ script_path = os.path.abspath(__file__)
 proj_path = os.path.dirname(os.path.dirname(script_path))
 
 ################################ Caltech256 ################################
-### If you have multiple GPUs on the machine, use this to select the specific GPU
+### We currently only support single GPU usage. You can use this to specify which GPU you want to use
 dev_id=0
 ### p_v = victim model dataset
 p_v="Caltech256"

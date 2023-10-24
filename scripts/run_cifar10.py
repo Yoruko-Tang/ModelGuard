@@ -142,7 +142,7 @@ for policy in query_list:
             elif defense == 'rs':
                 ## reverse sigmoid
                 strat="reverse_sigmoid"
-                beta=0.02
+                beta=0.21
                 gamma=0.2
                 # Output path to attacker's model
                 out_dir=f"models/final_bb_dist/{p_v}-{f_v}/{policy}{policy_suffix}-{queryset}-B{budget}/revsig/beta{beta}-gamma{gamma}"
@@ -172,7 +172,7 @@ for policy in query_list:
             
             elif defense == 'am':
                 strat="am"
-                defense_lv=0.4
+                defense_lv=0.7
                 # Output path to attacker's model
                 out_dir=f"models/final_bb_dist/{p_v}-{f_v}/{policy}{policy_suffix}-{queryset}-B{budget}/am/tau{defense_lv}"
                 defense_args=f"'defense_level:{defense_lv};out_path:{out_dir}'"

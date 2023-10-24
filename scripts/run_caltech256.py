@@ -236,7 +236,8 @@ for policy in query_list:
 
                 status = os.system(command_transfer)
                 if status != 0:
-                    raise RuntimeError("Fail to generate transfer set with attack {} and defense {}".format('random_'+attack,defense))
+                    if not os.path.exists(os.path.join(out_dir,'params_transfer.json')):
+                        raise RuntimeError("Fail to generate transfer set with attack {} and defense {}".format('random_'+attack,defense))
                 status = os.system(command_train)
                 if status != 0:
                     raise RuntimeError("Fail to train the substitute model with attack {} and defense {}".format('random_'+attack,defense))
@@ -245,4 +246,5 @@ for policy in query_list:
                 command_train = f"python defenses/adversary/jacobian.py {policy} {vic_dir} {strat} {defense_args} --quantize {quantize} --quantize_args {quantize_args} --defense_aware {defense_aware} --recover_args {recover_params} --hardlabel {hardlabel} --model_adv {f_v} --pretrained {pretrained} --out_dir {out_dir} --testdataset {p_v} -d {dev_id} --queryset {queryset} --query_batch_size {batch_size} --budget {budget} -e {epochs} -b {training_batch_size} --lr {lr} --lr_step {lr_step} --lr_gamma {lr_gamma} --seedsize {seedsize} --epsilon {jb_epsilon} --T {T}"
                 status = os.system(command_train)
                 if status != 0:
-                    raise RuntimeError("Fail to train the substitute model with attack {} and defense {}".format('jbtr3_'+attack,defense))
+                    if not os.path.exists(os.path.join(out_dir,'params_transfer.json')):
+                        raise RuntimeError("Fail to train the substitute model with attack {} and defense {}".format('jbtr3_'+attack,defense))

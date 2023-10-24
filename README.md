@@ -16,11 +16,10 @@ conda env create -f environment.yml
 conda activate modelguard
 ```
 
-## Instructions to Run the Codes
-We will show how to run the experiments with $X_t$ = Caltech256 as an example here. To run the experiments on other dataset, please change the parameters according to our paper. 
 
-### 0. Dataset Preparing
-Except for the datasets (CIFAR100, CIFAR10, SVHN) that can be downloaded by Pytorch, you need to download **all** the following datasets into ```./data/``` (create it if it does not exist) and unzip them before running any codes. (You can change the default dataset path by changing the ```root``` parameter in the dataset files such as ```./defenses/datasets/caltech256.py```.)
+
+## Dataset Preparing
+We will use 8 datasets in total in our experiments. Three datasets (CIFAR100, CIFAR10, SVHN) can be automatically downloaded when executing scripts. However, you still need to download **all** the following datasets into ```./data/``` (create it if it does not exist) and unzip them before running any codes. (You can change the default dataset path by changing the ```root``` parameter in the dataset files such as ```./defenses/datasets/caltech256.py```.)
 
 1. [Caltech256](https://data.caltech.edu/records/nyy15-4j048)
 2. [CUB200](https://data.caltech.edu/records/65de6-vp158)
@@ -54,13 +53,22 @@ cd ./..
 
 For ImageNet1k, you need to manually download it with logging in. Make sure that the training set of the ImageNet1k is stored in ```./data/ILSVRC2012/train```. 
 
+## Instructions to Run the Codes
+
+We provide automatic scripts to generate the results in our paper. For instance, after preparing all datasets, using the following command will run all the experiments in Table 2. 
+
+```shell
+python scripts/run_caltech256.py
+```
+
+However, we strongly encourage you to explore more customized running options as instructed below. We will show how to run the experiments with $X_t$ = Caltech256 as an example here. To run the experiments on other dataset, please change the parameters according to our paper.
 
 ### 1. General Setup
 
 Run the following commands in shell to define the datasets and training hyperparameters.
 
 ```shell
-# If you have multiple GPUs on the machine, use this to specify the GPU you want to use
+# We currently only support single GPU usage. You can use this to specify which GPU you want to use
 dev_id=0
 # X_t = target model dataset (Caltech256, CUBS200, CIFAR100, CIFAR10)
 X_t=Caltech256

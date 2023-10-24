@@ -299,7 +299,7 @@ class Table_Recover():
 
     def get_perturbed_label_sample_parallel(self,blackbox,true_label_sample,xs=None,x_info_idxs=None,num_proc=10):
         print("Generating recover table with %d processes..."%num_proc)
-        torch.multiprocessing.set_start_method('spawn',force=True)
+        torch.multiprocessing.set_start_method('forkserver',force=True)
         # if hasattr(blackbox,'cpu'):
         #     blackbox.cpu()
         with Manager() as manager:

@@ -11,9 +11,8 @@ This is an official implementation of the USENIX Security 2024 paper *ModelGuard
 
 You can run the following commands to create a new environments for running the codes with Anaconda:
 ```shell
-conda create -n modelguard python=3.8
+conda env create -f environment.yml
 conda activate modelguard
-pip install -r requirements.txt
 ```
 
 ## Instructions to Run the Codes

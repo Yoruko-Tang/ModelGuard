@@ -8,6 +8,7 @@ This is an official implementation of the USENIX Security 2024 paper *ModelGuard
 1. Python 3.8
 2. PyTorch 1.7.1
 3. PuLP 2.6.0
+4. CUDA >= 10.2
 
 You can run the following commands to create a new environments for running the codes with Anaconda:
 ```shell
@@ -19,15 +20,39 @@ conda activate modelguard
 We will show how to run the experiments with $X_t$ = Caltech256 as an example here. To run the experiments on other dataset, please change the parameters according to our paper. 
 
 ### 0. Dataset Preparing
-Except for the datasets (CIFAR100, CIFAR10, SVHN) that can be downloaded by Pytorch, you also need to download the following datasets into ```./data/``` (create it if it does not exist) and unzip them to reproduce the results in this paper. (You can change the default dataset path by changing the ```root``` parameter in the dataset files such as ```./defenses/datasets/caltech256.py```.)
+Except for the datasets (CIFAR100, CIFAR10, SVHN) that can be downloaded by Pytorch, you need to download **all** the following datasets into ```./data/``` (create it if it does not exist) and unzip them before running any codes. (You can change the default dataset path by changing the ```root``` parameter in the dataset files such as ```./defenses/datasets/caltech256.py```.)
 
-1. [Caltech256](https://data.caltech.edu/records/nyy15-4j048/files/256_ObjectCategories.tar?download=1)
-2. [CUB200](https://data.caltech.edu/records/65de6-vp158/files/CUB_200_2011.tgz?download=1)
-3. [ImageNet1k](http://image-net.org/download-images)
+1. [Caltech256](https://data.caltech.edu/records/nyy15-4j048)
+2. [CUB200](https://data.caltech.edu/records/65de6-vp158)
+3. [ImageNet1k (ILSVRC2012)](http://image-net.org/download-images)
 4. [TinyImageNet200](http://cs231n.stanford.edu/tiny-imagenet-200.zip)
-5. [Indoor67](http://groups.csail.mit.edu/vision/LabelMe/NewImages/indoorCVPR_09.tar)
+5. [Indoor67](http://web.mit.edu/torralba/www/indoor.html)
 
+For Caltech256, CUB200, TinyImageNedt200 and Indoor67, you can use the following commands to download and unzip in shell:
+```shell
+mkdir ./data
+cd ./data
+# Caltech256
+wget https://data.caltech.edu/records/nyy15-4j048/files/256_ObjectCategories.tar
+tar -xf ./256_ObjectCategories.tar
+# CUB200
+wget https://data.caltech.edu/records/65de6-vp158/files/CUB_200_2011.tgz
+tar -xzf ./CUB_200_2011.tgz
+# TinyImageNet200
+wget http://cs231n.stanford.edu/tiny-imagenet-200.zip
+unzip -q ./tiny-imagenet-200.zip
+# Indoor67
+wget http://groups.csail.mit.edu/vision/LabelMe/NewImages/indoorCVPR_09.tar
+tar -xf indoorCVPR_09.tar
+mkdir ./indoor
+mv ./Images/ ./indoor
+wget http://web.mit.edu/torralba/www/TrainImages.txt -O ./indoor/TrainImages.txt
+wget http://web.mit.edu/torralba/www/TestImages.txt -O ./indoor/TestImages.txt
+# finish
+cd ./..
+```
 
+For ImageNet1k, you need to manually download it with logging in. Make sure that the training set of the ImageNet1k is stored in ```./data/ILSVRC2012/train```. 
 
 
 ### 1. General Setup
@@ -59,18 +84,18 @@ epochs=30
 training_batch_size=32
 ```
 
-\[OPTION\]: You can generate the target model if you do not have the target model. Run the following command in shell to train the model with outlier exposure:
+You need to generate the target model if you do not have the target model. Run the following command in shell to train the model with outlier exposure:
 
 ```shell
 # (defense) Train a target model with outlier exposure
 python defenses/victim/train_admis.py ${X_t} ${w_t} -o ${vic_dir} -b 64 -d ${dev_id} -e 100 -w 4 --lr 0.01 --lr_step 30 --lr_gamma 0.5 --pretrained ${pretrained} --oe_lamb ${oe_lamb} -doe ${oeset}
 ```
 
-This command will also generate the misinformation model for AM defense. 
+This command will also generate the misinformation model for AM defense.
 
 
 ### 2. Define Attack Method
-You can specify the query strategy (KnockoffNet or JBDA-TR) for the attacker from the following two options.
+You can specify the query strategy (KnockoffNet or JBDA-TR) for the attacker from the following two options by running the corresponding command lines in shell.
 
 1. KnockoffNet
 
@@ -93,7 +118,7 @@ You can specify the query strategy (KnockoffNet or JBDA-TR) for the attacker fro
     batch_size=1
     ```
 
-Then you need to choose one of the following attack strategies:
+Then you need to choose one of the following attack strategies by running the corresponding command lines in shell:
 
 #### a. Naive Attack
 
@@ -208,7 +233,7 @@ qpi=1
 policy_suffix="_ddae"
 ```
 
-\[OPTION\]: If you have not generate shadow models for generating the training data for D-DAE, you need to run the following command to train the shadow models:
+**Notice**: If you have not generate shadow models for generating the training data for D-DAE, you need to run the following command to train the shadow models:
 
 ```shell
 # (adversarial) Train shadow models
@@ -260,7 +285,7 @@ policy_suffix="_bayes"
 ```
 
 ### 3. Define Defense Method
-You can select one of the following defense against model extraction attacks. 
+You can select one of the following defense against model extraction attacks by running the corresponding command lines in shell. 
 
 #### a. No Defense (None)
 
@@ -322,7 +347,7 @@ out_dir=models/final_bb_dist/${X_t}-${w_t}/${policy}${policy_suffix}-${queryset}
 defense_args="epsilon:${eps};batch_constraint:0;objmax:1;oracle:${oracle};ydist:${ydist};model_adv_proxy:${proxydir};out_path:${out_dir}"
 ```
 
-\[OPTION\]: To run MAD, you need to first generate a surrogate model. Run the following command to do so if you have not done this before:
+**Notice**: To run MAD, you need to first generate a surrogate model. Run the following command to do so if you have not done this before:
 
 ```shell
 # (defense) Generate randomly initialized surrogate model

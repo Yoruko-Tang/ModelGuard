@@ -16,6 +16,7 @@ conda env create -f environment.yml
 conda activate modelguard
 ```
 
+**Notice:** Different GPUs may require different versions of PyTorch. Please follow the instructions on the [official website of PyTorch](https://pytorch.org/get-started/locally/) if there is any problem with installing PyTorch. 
 
 
 ## Dataset Preparing

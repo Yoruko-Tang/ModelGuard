@@ -28,31 +28,10 @@ We will use 8 datasets in total in our experiments. Three datasets (CIFAR100, CI
 4. [TinyImageNet200](http://cs231n.stanford.edu/tiny-imagenet-200.zip)
 5. [Indoor67](http://web.mit.edu/torralba/www/indoor.html)
 
-For Caltech256, CUB200, TinyImageNedt200 and Indoor67, you can use the following commands to download and unzip in shell:
+For Caltech256, CUB200, TinyImageNedt200, Indoor67 and ImageNet1k, you can also use the scripts ```dataset.sh``` to download and unzip in shell:
 ```shell
-mkdir ./data
-cd ./data
-# Caltech256
-wget https://data.caltech.edu/records/nyy15-4j048/files/256_ObjectCategories.tar
-tar -xf ./256_ObjectCategories.tar
-# CUB200
-wget https://data.caltech.edu/records/65de6-vp158/files/CUB_200_2011.tgz
-tar -xzf ./CUB_200_2011.tgz
-# TinyImageNet200
-wget http://cs231n.stanford.edu/tiny-imagenet-200.zip
-unzip -q ./tiny-imagenet-200.zip
-# Indoor67
-wget http://groups.csail.mit.edu/vision/LabelMe/NewImages/indoorCVPR_09.tar
-tar -xf indoorCVPR_09.tar
-mkdir ./indoor
-mv ./Images/ ./indoor
-wget http://web.mit.edu/torralba/www/TrainImages.txt -O ./indoor/TrainImages.txt
-wget http://web.mit.edu/torralba/www/TestImages.txt -O ./indoor/TestImages.txt
-# finish
-cd ./..
+sh dataset.sh
 ```
-
-For ImageNet1k, you need to manually download it with logging in. Make sure that the training set of the ImageNet1k is stored in ```./data/ILSVRC2012/train```. 
 
 ## Instructions to Run the Codes
 

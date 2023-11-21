@@ -81,7 +81,7 @@ for policy in query_list:
                     generate_shadow = True
             if generate_shadow:
                 # generate shadow models
-                status = os.system(f"python defenses/victim/train_shadow.py {shadowset} {shadow_model} -o {shadow_path} -b 64 -d {dev_id} -e 5 -w 4 --lr 0.01 --lr_step 3 --lr_gamma 0.5 --pretrained {pretrained} --num_shadows {num_shadows} --num_classes {num_classes}")
+                status = os.system(f"python defenses/adversary/train_shadow.py {shadowset} {shadow_model} -o {shadow_path} -b 64 -d {dev_id} -e 5 -w 4 --lr 0.01 --lr_step 3 --lr_gamma 0.5 --pretrained {pretrained} --num_shadows {num_shadows} --num_classes {num_classes}")
                 if status != 0:
                     raise RuntimeError("Fail to generate shadow models for D-DAE!")
         elif attack == 'ddae+':
